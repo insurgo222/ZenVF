@@ -1,0 +1,45 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>ZenVF</AssemblyName>
+    <RootNamespace>ZenVF</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <Version>1.0.7</Version>
+    <Product>ZenVF</Product>
+    <Company>ZenVF</Company>
+    <Description>AMD Zen 4 / Zen 5 PBO FMax V/F curve sweep tool</Description>
+    <SatelliteResourceLanguages>zh-Hans;en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.6" />
+    <PackageReference Include="OxyPlot.Wpf" Version="2.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\RyzenSMU.bin" LogicalName="ZenVF.Assets.RyzenSMU.bin" />
+    <Resource Include="Assets\app.png" />
+    <Content Include="Assets\PawnIO_setup.exe" Link="PawnIO_setup.exe" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\COPYING-PawnIO-Modules.txt" Link="COPYING-PawnIO-Modules.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\licenses\*.txt" Link="licenses\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\docs\screenshot.png" Link="docs\screenshot.png" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\docs\screenshot.png')" />
+    <Content Include="..\..\docs\screenshot-light.png" Link="docs\screenshot-light.png" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\docs\screenshot-light.png')" />
+    <Content Include="..\..\docs\core_voltage.png" Link="docs\core_voltage.png" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\docs\core_voltage.png')" />
+    <Content Include="..\..\docs\core_voltage_eclk.png" Link="docs\core_voltage_eclk.png" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\docs\core_voltage_eclk.png')" />
+    <Content Include="..\..\docs\per_core_vf.png" Link="docs\per_core_vf.png" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\docs\per_core_vf.png')" />
+    <Content Include="..\..\docs\single_core.png" Link="docs\single_core.png" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\docs\single_core.png')" />
+    <Content Include="..\..\docs\theme-settings.png" Link="docs\theme-settings.png" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\docs\theme-settings.png')" />
+    <None Include="..\..\README.md" Link="README.md" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\README.md')" />
+    <None Include="..\..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\THIRD-PARTY-NOTICES.md')" />
+  </ItemGroup>
+
+</Project>

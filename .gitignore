@@ -1,0 +1,26 @@
+# Build output
+bin/
+obj/
+dist/
+dist-new/
+release/
+*.user
+*.suo
+.vs/
+
+# Impeccable transient artifacts
+.impeccable/config.local.json
+.impeccable/questions/
+.impeccable/mocks/
+.impeccable/review/
+.impeccable/build/
+.impeccable/*.png
+
+# OS / editor
+Thumbs.db
+.DS_Store
+
+# Local agent harness hooks (machine-specific paths)
+.codex/
+.cursor/
+.gemini/

@@ -1,0 +1,134 @@
+<Window x:Class="ZenVF.CoreVoltageWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:oxy="http://oxyplot.org/wpf"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        Title="ZenVF · 每核电压"
+        Width="1120"
+        Height="720"
+        MinWidth="820"
+        MinHeight="540"
+        WindowStyle="None"
+        ResizeMode="CanResize"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{DynamicResource WindowBgBrush}"
+        FontFamily="Segoe UI Variable Text, Segoe UI, Microsoft YaHei UI"
+        TextOptions.TextFormattingMode="Display"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True">
+
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="50"
+                            ResizeBorderThickness="6"
+                            GlassFrameThickness="0"
+                            CornerRadius="0"
+                            UseAeroCaptionButtons="False" />
+    </shell:WindowChrome.WindowChrome>
+
+    <Border Background="{DynamicResource WindowBgBrush}" BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="1" CornerRadius="0">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="50" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="62" />
+            </Grid.RowDefinitions>
+
+            <Border Grid.Row="0" Background="{DynamicResource TitleBarBrush}"
+                    BorderBrush="{DynamicResource DividerBrush}" BorderThickness="0,0,0,1">
+                <Grid>
+                    <StackPanel Orientation="Horizontal" Margin="16,0,0,0" VerticalAlignment="Center">
+                        <Grid Width="18" Height="18" Margin="0,0,9,0">
+                            <Border BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" />
+                            <UniformGrid Columns="2" Rows="2" Margin="2">
+                                <Border Background="{DynamicResource CopperBrush}" Margin="0,0,1,1" />
+                                <Border Background="{DynamicResource TealBrush}" Margin="1,0,0,1" />
+                                <Border Background="{DynamicResource MutedBrush}" Margin="0,1,1,0" />
+                                <Border Background="{DynamicResource AccentBrush}" Margin="1,1,0,0" />
+                            </UniformGrid>
+                        </Grid>
+                        <TextBlock Text="每核电压" FontSize="14" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextBrush}" VerticalAlignment="Center" />
+                        <Border x:Name="EclkPill" Style="{StaticResource EclkPill}" Margin="12,0,0,0"
+                                Padding="6,2" Visibility="Collapsed">
+                            <StackPanel Orientation="Horizontal">
+                                <Viewbox Width="11" Height="11" VerticalAlignment="Center">
+                                    <Path Data="{StaticResource EclkWaveGeometry}"
+                                          Stroke="{DynamicResource AccentBrush}" StrokeThickness="1.5"
+                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                          StrokeLineJoin="Round" />
+                                </Viewbox>
+                                <TextBlock x:Name="EclkText" Text="eCLK" FontSize="9" Margin="5,0,0,0"
+                                           Foreground="{DynamicResource AccentBrush}" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                    <Button Content="&#xE8BB;" Style="{StaticResource CloseButton}" Click="Close_Click"
+                            HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0"
+                            shell:WindowChrome.IsHitTestVisibleInChrome="True" ToolTip="关闭" />
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="1" Margin="18,16,18,12">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel>
+                        <TextBlock x:Name="FrequencyText" Text="—" FontFamily="Cascadia Mono, Consolas"
+                                   FontSize="26" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" />
+                        <TextBlock x:Name="FrequencySubText" Text="核心频率" FontSize="10"
+                                   Foreground="{DynamicResource FaintBrush}" Margin="0,3,0,0" />
+                    </StackPanel>
+
+                    <Border Grid.Column="1" Width="1" Height="40" Background="{DynamicResource BorderBrush}"
+                            HorizontalAlignment="Left" Margin="20,0,0,0" />
+                    <StackPanel Grid.Column="1" Margin="38,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="全核测试中每个核心在同一档位的电压。" FontSize="10.5"
+                                   Foreground="{DynamicResource MutedBrush}" />
+                        <TextBlock Text="柱长为电压；铜色是当前档位电压最高的核心。" FontSize="10"
+                                   Foreground="{DynamicResource FaintBrush}" Margin="0,4,0,0" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="PrevFrequencyButton" Content="上一频率" Style="{StaticResource SecondaryButton}"
+                                Click="PrevFrequency_Click" Padding="12,7" Margin="0,0,6,0" />
+                        <Button x:Name="NextFrequencyButton" Content="下一频率" Style="{StaticResource SecondaryButton}"
+                                Click="NextFrequency_Click" Padding="12,7" />
+                    </StackPanel>
+                </Grid>
+
+                <Border Grid.Row="1" Style="{StaticResource Plate}" ClipToBounds="True" Margin="0,14,0,0">
+                    <oxy:PlotView x:Name="VoltagePlot" Background="Transparent" BorderThickness="0"
+                                  Margin="2,0,8,2" />
+                </Border>
+            </Grid>
+
+            <Border Grid.Row="2" Background="{DynamicResource TitleBarBrush}"
+                    BorderBrush="{DynamicResource DividerBrush}" BorderThickness="0,1,0,0" Padding="18,0">
+                <Grid>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock x:Name="MaxCoreText" Text="—" FontFamily="Cascadia Mono, Consolas"
+                                   FontSize="11.5" FontWeight="SemiBold" Foreground="{DynamicResource CopperBrush}" />
+                        <TextBlock x:Name="CoreCountText" Text="—" FontSize="9.5"
+                                   Foreground="{DynamicResource FaintBrush}" Margin="0,4,0,0" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <Button x:Name="ExportButton" Content="导出 PNG" Style="{StaticResource SecondaryButton}"
+                                Click="Export_Click" Padding="14,8" Margin="0,0,4,0" />
+                        <Button Content="关闭" Style="{StaticResource GhostButton}" Click="Close_Click" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+    </Border>
+</Window>

@@ -1,0 +1,122 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- ZenVF die palette, light (ceramic package). ThemeManager overrides the accent brushes at runtime. -->
+    <Color x:Key="WindowBgColor">#E9EDEF</Color>
+    <Color x:Key="TitleBarColor">#F2F4F5</Color>
+    <Color x:Key="CardColor">#F7F8F8</Color>
+    <Color x:Key="CardHoverColor">#FFFFFF</Color>
+    <Color x:Key="InsetColor">#EFF2F3</Color>
+    <Color x:Key="InputColor">#FFFFFF</Color>
+    <Color x:Key="Surface2Color">#E4E9EB</Color>
+    <Color x:Key="Surface3Color">#D8DEE1</Color>
+    <Color x:Key="BorderColor">#C9D2D7</Color>
+    <Color x:Key="BorderSoftColor">#DDE3E6</Color>
+    <Color x:Key="DividerColor">#DCE2E5</Color>
+    <Color x:Key="TextColor">#10161B</Color>
+    <Color x:Key="MutedColor">#55636E</Color>
+    <Color x:Key="FaintColor">#6B7883</Color>
+    <Color x:Key="AccentColor">#0E6B6B</Color>
+    <Color x:Key="AccentHoverColor">#128080</Color>
+    <Color x:Key="AccentPressedColor">#0A5252</Color>
+    <Color x:Key="AccentTextColor">#FFFFFF</Color>
+    <Color x:Key="AccentSoftColor">#1F0E6B6B</Color>
+    <Color x:Key="BlueColor">#0E6B6B</Color>
+    <Color x:Key="GreenColor">#2F7A55</Color>
+    <Color x:Key="RedColor">#A63A2B</Color>
+    <Color x:Key="YellowColor">#8A6100</Color>
+    <Color x:Key="SuccessSoftColor">#E3F0E8</Color>
+    <Color x:Key="WarningSoftColor">#F7EEDB</Color>
+    <Color x:Key="ErrorSoftColor">#F6E3DF</Color>
+    <Color x:Key="ChipColor">#EEF2F3</Color>
+    <Color x:Key="ChipBorderColor">#C9D2D7</Color>
+    <Color x:Key="OverlayColor">#66000000</Color>
+    <Color x:Key="SelectionColor">#330E6B6B</Color>
+    <Color x:Key="FocusColor">#CC0E6B6B</Color>
+    <Color x:Key="ScrollThumbColor">#AFBBC2</Color>
+    <Color x:Key="ScrollThumbHoverColor">#8E9CA6</Color>
+    <Color x:Key="ChartHoverBackgroundColor">#FFFFFF</Color>
+    <Color x:Key="ChartHoverBorderColor">#C9D2D7</Color>
+    <Color x:Key="ChartHoverTitleColor">#10161B</Color>
+    <Color x:Key="ChartHoverDetailColor">#44515C</Color>
+    <Color x:Key="DangerButtonColor">#F6E3DF</Color>
+    <Color x:Key="DangerButtonBorderColor">#E0B5AC</Color>
+    <Color x:Key="DangerButtonTextColor">#8F2F22</Color>
+    <Color x:Key="PboOnColor">#F7EEDB</Color>
+    <Color x:Key="PboOnBorderColor">#D6B36A</Color>
+    <Color x:Key="PboOffColor">#E3F0E8</Color>
+    <Color x:Key="PboOffBorderColor">#9CC9B0</Color>
+    <Color x:Key="AdminOnColor">#E3F0E8</Color>
+    <Color x:Key="AdminOnBorderColor">#9CC9B0</Color>
+    <Color x:Key="LogTextColor">#33414C</Color>
+    <Color x:Key="LogTimeColor">#6B7883</Color>
+    <Color x:Key="SiliconColor">#E9EDEF</Color>
+    <Color x:Key="SubstrateColor">#F7F8F8</Color>
+    <Color x:Key="CopperColor">#9A4E12</Color>
+    <Color x:Key="CopperSoftColor">#339A4E12</Color>
+    <Color x:Key="TealColor">#0E6B6B</Color>
+    <Color x:Key="RuleColor">#C9D2D7</Color>
+    <Color x:Key="CoreBlockColor">#F0F3F4</Color>
+    <Color x:Key="CoreBlockBorderColor">#C9D2D7</Color>
+
+    <SolidColorBrush x:Key="BgBrush" Color="{StaticResource WindowBgColor}" />
+    <SolidColorBrush x:Key="SurfaceBrush" Color="{StaticResource CardColor}" />
+    <SolidColorBrush x:Key="AccentDimBrush" Color="{StaticResource AccentColor}" />
+    <SolidColorBrush x:Key="WindowBgBrush" Color="{StaticResource WindowBgColor}" />
+    <SolidColorBrush x:Key="TitleBarBrush" Color="{StaticResource TitleBarColor}" />
+    <SolidColorBrush x:Key="CardBrush" Color="{StaticResource CardColor}" />
+    <SolidColorBrush x:Key="CardHoverBrush" Color="{StaticResource CardHoverColor}" />
+    <SolidColorBrush x:Key="InsetBrush" Color="{StaticResource InsetColor}" />
+    <SolidColorBrush x:Key="InputBrush" Color="{StaticResource InputColor}" />
+    <SolidColorBrush x:Key="Surface2Brush" Color="{StaticResource Surface2Color}" />
+    <SolidColorBrush x:Key="Surface3Brush" Color="{StaticResource Surface3Color}" />
+    <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource BorderColor}" />
+    <SolidColorBrush x:Key="BorderSoftBrush" Color="{StaticResource BorderSoftColor}" />
+    <SolidColorBrush x:Key="DividerBrush" Color="{StaticResource DividerColor}" />
+    <SolidColorBrush x:Key="TextBrush" Color="{StaticResource TextColor}" />
+    <SolidColorBrush x:Key="MutedBrush" Color="{StaticResource MutedColor}" />
+    <SolidColorBrush x:Key="FaintBrush" Color="{StaticResource FaintColor}" />
+    <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}" />
+    <SolidColorBrush x:Key="AccentHoverBrush" Color="{StaticResource AccentHoverColor}" />
+    <SolidColorBrush x:Key="AccentPressedBrush" Color="{StaticResource AccentPressedColor}" />
+    <SolidColorBrush x:Key="AccentTextBrush" Color="{StaticResource AccentTextColor}" />
+    <SolidColorBrush x:Key="AccentSoftBrush" Color="{StaticResource AccentSoftColor}" />
+    <SolidColorBrush x:Key="BlueBrush" Color="{StaticResource BlueColor}" />
+    <SolidColorBrush x:Key="GreenBrush" Color="{StaticResource GreenColor}" />
+    <SolidColorBrush x:Key="RedBrush" Color="{StaticResource RedColor}" />
+    <SolidColorBrush x:Key="YellowBrush" Color="{StaticResource YellowColor}" />
+    <SolidColorBrush x:Key="SuccessSoftBrush" Color="{StaticResource SuccessSoftColor}" />
+    <SolidColorBrush x:Key="WarningSoftBrush" Color="{StaticResource WarningSoftColor}" />
+    <SolidColorBrush x:Key="ErrorSoftBrush" Color="{StaticResource ErrorSoftColor}" />
+    <SolidColorBrush x:Key="ChipBrush" Color="{StaticResource ChipColor}" />
+    <SolidColorBrush x:Key="ChipBorderBrush" Color="{StaticResource ChipBorderColor}" />
+    <SolidColorBrush x:Key="OverlayBrush" Color="{StaticResource OverlayColor}" />
+    <SolidColorBrush x:Key="SelectionBrush" Color="{StaticResource SelectionColor}" />
+    <SolidColorBrush x:Key="FocusBrush" Color="{StaticResource FocusColor}" />
+    <SolidColorBrush x:Key="ScrollThumbBrush" Color="{StaticResource ScrollThumbColor}" />
+    <SolidColorBrush x:Key="ScrollThumbHoverBrush" Color="{StaticResource ScrollThumbHoverColor}" />
+    <SolidColorBrush x:Key="ChartHoverBackgroundBrush" Color="{StaticResource ChartHoverBackgroundColor}" />
+    <SolidColorBrush x:Key="ChartHoverBorderBrush" Color="{StaticResource ChartHoverBorderColor}" />
+    <SolidColorBrush x:Key="ChartHoverTitleBrush" Color="{StaticResource ChartHoverTitleColor}" />
+    <SolidColorBrush x:Key="ChartHoverDetailBrush" Color="{StaticResource ChartHoverDetailColor}" />
+    <SolidColorBrush x:Key="DangerButtonBrush" Color="{StaticResource DangerButtonColor}" />
+    <SolidColorBrush x:Key="DangerButtonBorderBrush" Color="{StaticResource DangerButtonBorderColor}" />
+    <SolidColorBrush x:Key="DangerButtonTextBrush" Color="{StaticResource DangerButtonTextColor}" />
+    <SolidColorBrush x:Key="PboOnBrush" Color="{StaticResource PboOnColor}" />
+    <SolidColorBrush x:Key="PboOnBorderBrush" Color="{StaticResource PboOnBorderColor}" />
+    <SolidColorBrush x:Key="PboOffBrush" Color="{StaticResource PboOffColor}" />
+    <SolidColorBrush x:Key="PboOffBorderBrush" Color="{StaticResource PboOffBorderColor}" />
+    <SolidColorBrush x:Key="AdminOnBrush" Color="{StaticResource AdminOnColor}" />
+    <SolidColorBrush x:Key="AdminOnBorderBrush" Color="{StaticResource AdminOnBorderColor}" />
+    <SolidColorBrush x:Key="LogTextBrush" Color="{StaticResource LogTextColor}" />
+    <SolidColorBrush x:Key="LogTimeBrush" Color="{StaticResource LogTimeColor}" />
+    <SolidColorBrush x:Key="SiliconBrush" Color="{StaticResource SiliconColor}" />
+    <SolidColorBrush x:Key="SubstrateBrush" Color="{StaticResource SubstrateColor}" />
+    <SolidColorBrush x:Key="CopperBrush" Color="{StaticResource CopperColor}" />
+    <SolidColorBrush x:Key="CopperSoftBrush" Color="{StaticResource CopperSoftColor}" />
+    <SolidColorBrush x:Key="TealBrush" Color="{StaticResource TealColor}" />
+    <SolidColorBrush x:Key="RuleBrush" Color="{StaticResource RuleColor}" />
+    <SolidColorBrush x:Key="CoreBlockBrush" Color="{StaticResource CoreBlockColor}" />
+    <SolidColorBrush x:Key="CoreBlockBorderBrush" Color="{StaticResource CoreBlockBorderColor}" />
+
+</ResourceDictionary>
