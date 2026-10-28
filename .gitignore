@@ -8,13 +8,8 @@ release/
 *.suo
 .vs/
 
-# Impeccable transient artifacts
-.impeccable/config.local.json
-.impeccable/questions/
-.impeccable/mocks/
-.impeccable/review/
-.impeccable/build/
-.impeccable/*.png
+# Local design/agent artifacts
+.impeccable/
 
 # OS / editor
 Thumbs.db
