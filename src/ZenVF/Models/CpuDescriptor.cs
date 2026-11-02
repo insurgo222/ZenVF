@@ -134,6 +134,20 @@ public sealed class CpuDescriptor
         ? stock + FMaxCeilingOffsetMHz
         : null;
 
+    /// <summary>
+    /// True only for AMD family/model combinations whose RSMU FMax commands
+    /// are known. Everything else may read sensors but must not touch the SMU.
+    /// </summary>
+    public bool IsSupported => IsAmd && (IsZen4 || IsZen5);
+
+    /// <summary>
+    /// Tctl at which a sweep is aborted. Zen 4 / Zen 5 throttle at Tjmax
+    /// 95 °C; first-generation Zen 4 X3D parts (7800X3D / 7900X3D / 7950X3D)
+    /// are limited to 89 °C.
+    /// </summary>
+    public double ThermalLimitC =>
+        IsZen4 && Name.Contains("X3D", StringComparison.OrdinalIgnoreCase) ? 89.0 : 95.0;
+
     public int ToActualFMax(uint ceilingFMax) =>
         Math.Max(0, (int)ceilingFMax - FMaxCeilingOffsetMHz);
 
@@ -194,8 +208,9 @@ public sealed class CpuDescriptor
             (0x1A, 0x24) => (false, true, true, "Strix Point"),
             (0x1A, 0x60) => (false, true, true, "Krackan Point"),
             (0x1A, 0x08) => (false, true, false, "Shimada Peak"),
-            (0x19, _) => (true, false, true, "Zen 4"),
-            (0x1A, _) => (false, true, true, "Zen 5"),
+            // No wildcard for the rest of family 19h/1Ah: 19h also contains
+            // Zen 3 (Vermeer, Cezanne, Rembrandt...), and RSMU command ids are
+            // platform specific. An unknown model must never receive SMU writes.
             _ => (false, false, false, "Unknown")
         };
     }
@@ -220,7 +235,20 @@ public sealed class CpuDescriptor
             return null;
         }
 
-        Match match = Regex.Match(name.ToUpperInvariant(), @"\b([789]\d{3}(?:X3D2|X3D|GE|G|X|HX|HS|U)?)\b");
+        string upper = name.ToUpperInvariant();
+
+        // Ryzen AI 300 series: "Ryzen AI 9 HX 370", "Ryzen AI 7 PRO 360".
+        // The model number is three digits and the HX/PRO tier is a separate word.
+        Match ai = Regex.Match(upper, @"\bAI\s+\d\s+(?:(?:HX|PRO)\s+)*(3\d{2})\b");
+        if (ai.Success)
+        {
+            return ai.Groups[1].Value;
+        }
+
+        // Desktop / mobile four-digit models. HX3D must be listed so names
+        // such as 9955HX3D / 7945HX3D are not cut off at "HX" by the trailing
+        // word boundary; F covers parts such as 7500F.
+        Match match = Regex.Match(upper, @"\b([789]\d{3}(?:X3D2|HX3D|X3D|HX|HS|GE|G|X|F|U)?)\b");
         return match.Success ? match.Groups[1].Value : null;
     }
 

@@ -47,12 +47,14 @@ public sealed class SweepProgress
 
 public sealed class SweepEngine
 {
-    private const double MaxSafeTemperature = 105.0;
     // A small positive clock overshoot is normal boost behaviour and should
     // not interrupt a run with a warning. Keep the warning for real SMU/PBO
     // failures, where the measured clock is far above the requested ceiling.
     private const int ClockOvershootToleranceMHz = 250;
     private const int FMaxReadbackToleranceMHz = 50;
+    // Under all-core load an unconstrained core runs within a few tens of MHz
+    // of FMax. A larger gap means PPT/TDC/EDC or temperature set the clock.
+    private const int ClockShortfallToleranceMHz = 100;
 
     public async Task<SweepRunResult> RunAsync(
         SmuController smu,
@@ -60,7 +62,6 @@ public sealed class SweepEngine
         CpuTopology topology,
         CpuDescriptor cpu,
         SweepSettings settings,
-        uint originalFMaxCeiling,
         Action<LogEntry> log,
         Action<SweepProgress> progress,
         Action<FrequencyCoreVoltages> coreVoltagesReady,
@@ -71,6 +72,7 @@ public sealed class SweepEngine
         Stopwatch stopwatch = Stopwatch.StartNew();
         const string label = "全核";
         string prefix = label + " ";
+        ThermalGuard thermal = new(cpu.ThermalLimitC, "全核测试");
         List<SweepSeries> series = settings.SelectedCcds
             .OrderBy(i => i)
             .Select(i => new SweepSeries { CcdIndex = i, Label = $"CCD{i} | MAX CORE" })
@@ -89,13 +91,19 @@ public sealed class SweepEngine
 
         List<int> frequencies = settings.BuildFrequencies().ToList();
         using LoadGenerator load = new();
-        bool restoreDone = false;
         bool keepFinal = !settings.RestoreAfterTest;
         bool perCoreVoltageWarningShown = false;
         bool voltageSourceLogged = false;
+        string? previousVoltageSource = null;
 
         try
         {
+            if (frequencies.Count == 0)
+            {
+                throw new InvalidOperationException("没有可测试的频率档位。");
+            }
+
+            log(new LogEntry { Level = LogLevel.Info, Message = $"{prefix}温度保护：Tctl 连续 {ThermalGuard.RequiredConsecutive} 次 ≥ {cpu.ThermalLimitC:0} °C 时中止（含预热阶段）。" });
             string ceilingNote = cpu.FMaxCeilingOffsetMHz > 0
                 ? $"，SMU 上限自动加 {cpu.FMaxCeilingOffsetMHz} MHz"
                 : string.Empty;
@@ -172,14 +180,21 @@ public sealed class SweepEngine
                         requestedActual,
                         (int)requestedCeiling,
                         label,
+                        sensors,
+                        thermal,
                         stopwatch,
                         progress,
                         cancellationToken)
                     .ConfigureAwait(false);
 
-                Dictionary<int, List<SensorCoreSample>> coreSamples = new();
+                // LhmSensorService may switch between the PM table and LHM VID
+                // from one snapshot to the next. Keep samples per source and
+                // use exactly one source for the whole step.
+                Dictionary<string, Dictionary<int, List<SensorCoreSample>>> samplesBySource = new();
+                Dictionary<string, int> snapshotsBySource = new();
                 List<double> packagePowers = new();
                 List<double> tctlValues = new();
+                List<double> pptLimits = new();
                 DateTime sampleStart = DateTime.Now;
 
                 while ((DateTime.Now - sampleStart).TotalSeconds < settings.SampleSeconds)
@@ -215,6 +230,14 @@ public sealed class SweepEngine
                             });
                         }
 
+                        string source = snapshot.VoltageSource;
+                        if (!samplesBySource.TryGetValue(source, out Dictionary<int, List<SensorCoreSample>>? bySource))
+                        {
+                            bySource = new Dictionary<int, List<SensorCoreSample>>();
+                            samplesBySource[source] = bySource;
+                        }
+
+                        bool addedAny = false;
                         foreach (SensorCoreSample coreSample in snapshot.Cores)
                         {
                             if (coreSample.EffectiveClock <= 0 && coreSample.Vid <= 0.15)
@@ -222,13 +245,19 @@ public sealed class SweepEngine
                                 continue;
                             }
 
-                            if (!coreSamples.TryGetValue(coreSample.CoreId, out List<SensorCoreSample>? list))
+                            if (!bySource.TryGetValue(coreSample.CoreId, out List<SensorCoreSample>? list))
                             {
                                 list = new List<SensorCoreSample>();
-                                coreSamples[coreSample.CoreId] = list;
+                                bySource[coreSample.CoreId] = list;
                             }
 
                             list.Add(coreSample);
+                            addedAny = true;
+                        }
+
+                        if (addedAny)
+                        {
+                            snapshotsBySource[source] = snapshotsBySource.GetValueOrDefault(source) + 1;
                         }
 
                         if (snapshot.PackagePower > 0)
@@ -236,14 +265,17 @@ public sealed class SweepEngine
                             packagePowers.Add(snapshot.PackagePower);
                         }
 
+                        if (snapshot.PptLimit > 0)
+                        {
+                            pptLimits.Add(snapshot.PptLimit);
+                        }
+
                         if (snapshot.Tctl > 0)
                         {
                             tctlValues.Add(snapshot.Tctl);
-                            if (snapshot.Tctl >= MaxSafeTemperature)
-                            {
-                                throw new InvalidOperationException($"温度达到 {snapshot.Tctl:0.0} °C，已中止扫描并准备恢复 FMax。");
-                            }
                         }
+
+                        thermal.Check(snapshot.Tctl);
                     }
 
                     double sampleFraction = (DateTime.Now - sampleStart).TotalSeconds / Math.Max(1, settings.SampleSeconds);
@@ -264,7 +296,34 @@ public sealed class SweepEngine
 
                 double power = packagePowers.Count > 0 ? packagePowers.Average() : 0;
                 double tctl = tctlValues.Count > 0 ? tctlValues.Max() : 0;
+                double pptLimit = pptLimits.Count > 0 ? Median(pptLimits) : 0;
                 bool anyPoint = false;
+
+                string? stepVoltageSource = ChooseVoltageSource(snapshotsBySource);
+                Dictionary<int, List<SensorCoreSample>> coreSamples = stepVoltageSource is not null
+                    ? samplesBySource[stepVoltageSource]
+                    : new Dictionary<int, List<SensorCoreSample>>();
+                if (snapshotsBySource.Count > 1 && stepVoltageSource is not null)
+                {
+                    log(new LogEntry
+                    {
+                        Level = LogLevel.Warning,
+                        Message = $"FMax 实际 {requestedActual} MHz：采样期间电压源发生切换（{FormatSourceCounts(snapshotsBySource)}），本档只使用“{stepVoltageSource}”的样本。"
+                    });
+                }
+
+                if (stepVoltageSource is not null
+                    && previousVoltageSource is not null
+                    && stepVoltageSource != previousVoltageSource)
+                {
+                    log(new LogEntry
+                    {
+                        Level = LogLevel.Warning,
+                        Message = $"电压源与上一档不同（上一档“{previousVoltageSource}”，本档“{stepVoltageSource}”）；两档电压不能直接比较。"
+                    });
+                }
+
+                previousVoltageSource = stepVoltageSource ?? previousVoltageSource;
 
                 // Reduce every core independently, then keep the full set so the
                 // secondary chart can show per-core voltages at this FMax step.
@@ -310,6 +369,8 @@ public sealed class SweepEngine
 
                 if (coreMedians.Count > 0)
                 {
+                    double stepClock = Median(coreMedians.Select(c => c.ClockMHz));
+                    bool stepLimited = stepClock < effectiveActual - ClockShortfallToleranceMHz;
                     FrequencyCoreVoltages frequencyCores = new()
                     {
                         RequestedFMax = requestedActual,
@@ -318,8 +379,20 @@ public sealed class SweepEngine
                         EffectiveFMaxCeiling = (int)effectiveCeiling,
                         PackagePower = Math.Round(power, 1),
                         Tctl = Math.Round(tctl, 1),
+                        VoltageSource = stepVoltageSource,
+                        IsClockLimited = stepLimited,
                         Cores = coreMedians
                     };
+
+                    if (stepLimited)
+                    {
+                        log(new LogEntry
+                        {
+                            Level = LogLevel.Warning,
+                            Message = $"FMax 实际 {effectiveActual} MHz：全核实测中位频率 {stepClock:0} MHz，低于档位 {effectiveActual - stepClock:0} MHz。"
+                                + $"该档受{DescribeLimiter(power, pptLimit, tctl, cpu.ThermalLimitC)}限制，而不是 FMax；曲线这一段反映的是限制墙，不是 V/F 特性。"
+                        });
+                    }
                     result.CoreVoltages.Add(frequencyCores);
                     coreVoltagesReady(frequencyCores);
 
@@ -348,7 +421,8 @@ public sealed class SweepEngine
                             Temperature = worstCore.Temperature,
                             PackagePower = frequencyCores.PackagePower,
                             SampleCount = coreSamples[worstCore.CoreId].Count,
-                            Timestamp = DateTime.Now
+                            Timestamp = DateTime.Now,
+                            IsClockLimited = worstCore.ClockMHz < effectiveActual - ClockShortfallToleranceMHz
                         };
                         ccdSeries.Add(point);
                         pointReady(point);
@@ -406,25 +480,72 @@ public sealed class SweepEngine
         finally
         {
             load.Stop();
-            if (!keepFinal && originalFMaxCeiling is >= 400 and <= 8000)
+            result.RestoreSucceeded = keepFinal ? null : RestoreAfterRun(smu, cpu, log);
+        }
+    }
+
+    /// <summary>
+    /// Restores the FMax recorded by <see cref="SmuController"/> before the
+    /// first write of this run. Never throws: it runs inside finally blocks.
+    /// </summary>
+    private static bool RestoreAfterRun(SmuController smu, CpuDescriptor cpu, Action<LogEntry> log)
+    {
+        try
+        {
+            uint? target = smu.RestoreTarget;
+            if (target is null)
             {
-                SmuWriteResult restore = smu.SetFMaxCeiling(originalFMaxCeiling);
-                restoreDone = restore.Success;
-                int originalActual = cpu.ToActualFMax(originalFMaxCeiling);
-                log(new LogEntry
-                {
-                    Level = restore.Success ? LogLevel.Success : LogLevel.Error,
-                    Message = restore.Success
-                        ? $"已恢复原始 FMax：SMU 上限 {originalFMaxCeiling} MHz（实际最高 {originalActual} MHz）。"
-                        : $"恢复原始 FMax 失败：{restore.Message} 请立即重启系统。"
-                });
-            }
-            else if (!keepFinal && !restoreDone)
-            {
-                log(new LogEntry { Level = LogLevel.Error, Message = "没有可用的原始 FMax，未能恢复。请重启系统。" });
+                log(new LogEntry { Level = LogLevel.Info, Message = "本次测试未改变 FMax，无需恢复。" });
+                return true;
             }
 
-            result.RestoreSucceeded = keepFinal ? null : restoreDone;
+            SmuWriteResult restore = smu.RestoreFMax();
+            int originalActual = cpu.ToActualFMax(target.Value);
+            log(new LogEntry
+            {
+                Level = restore.Success ? LogLevel.Success : LogLevel.Error,
+                Message = restore.Success
+                    ? $"已恢复原始 FMax：SMU 上限 {target} MHz（实际最高 {originalActual} MHz）。"
+                    : $"恢复原始 FMax 失败：{restore.Message} 请立即重启系统。"
+            });
+            return restore.Success;
+        }
+        catch (Exception ex)
+        {
+            log(new LogEntry { Level = LogLevel.Error, Message = $"恢复原始 FMax 时发生异常：{ex.Message} 请立即重启系统。" });
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Aborts a sweep when Tctl stays at or above the CPU's throttle limit for
+    /// several consecutive readings. A single reading at the limit is normal
+    /// sensor jitter; a sustained one means the CPU is thermally throttling
+    /// and the V/F point is no longer meaningful.
+    /// </summary>
+    private sealed class ThermalGuard(double limitC, string context)
+    {
+        public const int RequiredConsecutive = 3;
+        private int _hits;
+
+        public void Check(double tctl)
+        {
+            if (tctl <= 0)
+            {
+                return;
+            }
+
+            if (tctl < limitC)
+            {
+                _hits = 0;
+                return;
+            }
+
+            if (++_hits >= RequiredConsecutive)
+            {
+                throw new InvalidOperationException(
+                    $"Tctl 连续 {RequiredConsecutive} 次 ≥ {limitC:0} °C（当前 {tctl:0.0} °C），已中止{context}并准备恢复 FMax。");
+            }
         }
     }
 
@@ -440,7 +561,6 @@ public sealed class SweepEngine
         CpuTopology topology,
         CpuDescriptor cpu,
         SweepSettings settings,
-        uint originalFMaxCeiling,
         Action<LogEntry> log,
         Action<SweepProgress> progress,
         Action<FrequencyCoreVoltages> coreVoltagesReady,
@@ -448,6 +568,7 @@ public sealed class SweepEngine
     {
         DateTime started = DateTime.Now;
         Stopwatch stopwatch = Stopwatch.StartNew();
+        ThermalGuard thermal = new(cpu.ThermalLimitC, "单核测试");
         List<int> frequencies = settings.BuildFrequencies().ToList();
         List<PhysicalCoreRef> cores = topology.GetPhysicalCores(settings.SelectedCcds).ToList();
         SweepRunResult result = new()
@@ -462,7 +583,6 @@ public sealed class SweepEngine
         };
 
         using LoadGenerator load = new();
-        bool restoreDone = false;
         bool keepFinal = !settings.RestoreAfterTest;
         bool? useVddcrVdd = null;
         int missingVddcrSamples = 0;
@@ -479,6 +599,7 @@ public sealed class SweepEngine
                 throw new InvalidOperationException("所选 CCD 没有可测试的物理核心。");
             }
 
+            log(new LogEntry { Level = LogLevel.Info, Message = $"温度保护：Tctl 连续 {ThermalGuard.RequiredConsecutive} 次 ≥ {cpu.ThermalLimitC:0} °C 时中止（含预热阶段）。" });
             int estimatedSeconds = settings.ApproximateSingleCoreDurationSeconds(cores.Count);
             string ceilingNote = cpu.FMaxCeilingOffsetMHz > 0
                 ? $"，SMU 上限自动加 {cpu.FMaxCeilingOffsetMHz} MHz"
@@ -553,6 +674,7 @@ public sealed class SweepEngine
                 }
 
                 List<CoreVoltageSample> stepCores = new();
+                Dictionary<string, int> stepSources = new();
                 List<double> stepPowers = new();
                 List<double> stepTctls = new();
 
@@ -631,13 +753,18 @@ public sealed class SweepEngine
                                 core,
                                 requestedActual,
                                 (int)requestedCeiling,
+                                sensors,
+                                thermal,
                                 stopwatch,
                                 progress,
                                 cancellationToken)
                             .ConfigureAwait(false);
 
                         List<double> clockValues = new();
-                        List<double> voltageValues = new();
+                        // VDDCR_VDD stays a single source once chosen; the Core
+                        // VID fallback can flip between PM table and LHM, so
+                        // keep values per source and use only one per core.
+                        Dictionary<string, List<double>> voltagesBySource = new();
                         List<double> temperatureValues = new();
                         List<double> packagePowers = new();
                         List<double> tctlValues = new();
@@ -690,7 +817,16 @@ public sealed class SweepEngine
                                     voltage = SensorValueSanity.NormalizeVoltage(voltage);
                                     if (SensorValueSanity.IsPlausibleVoltage(voltage))
                                     {
-                                        voltageValues.Add(voltage);
+                                        string voltageSource = useVddcrVdd == true
+                                            ? snapshot.VddcrVddSource
+                                            : snapshot.VoltageSource;
+                                        if (!voltagesBySource.TryGetValue(voltageSource, out List<double>? values))
+                                        {
+                                            values = new List<double>();
+                                            voltagesBySource[voltageSource] = values;
+                                        }
+
+                                        values.Add(voltage);
                                     }
 
                                     if (target.Temperature > 0)
@@ -707,11 +843,9 @@ public sealed class SweepEngine
                                 if (snapshot.Tctl > 0)
                                 {
                                     tctlValues.Add(snapshot.Tctl);
-                                    if (snapshot.Tctl >= MaxSafeTemperature)
-                                    {
-                                        throw new InvalidOperationException($"温度达到 {snapshot.Tctl:0.0} °C，已中止单核测试并准备恢复频率。");
-                                    }
                                 }
+
+                                thermal.Check(snapshot.Tctl);
                             }
 
                             double sampleFraction = (DateTime.Now - sampleStart).TotalSeconds
@@ -733,6 +867,21 @@ public sealed class SweepEngine
 
                             int remaining = (int)((settings.SampleSeconds - (DateTime.Now - sampleStart).TotalSeconds) * 1000);
                             await Task.Delay(Math.Clamp(remaining, 150, 250), cancellationToken).ConfigureAwait(false);
+                        }
+
+                        Dictionary<string, int> sourceCounts = voltagesBySource
+                            .ToDictionary(pair => pair.Key, pair => pair.Value.Count);
+                        string? coreVoltageSource = ChooseVoltageSource(sourceCounts);
+                        List<double> voltageValues = coreVoltageSource is not null
+                            ? voltagesBySource[coreVoltageSource]
+                            : new List<double>();
+                        if (sourceCounts.Count > 1 && coreVoltageSource is not null)
+                        {
+                            log(new LogEntry
+                            {
+                                Level = LogLevel.Warning,
+                                Message = $"{coreName}：采样期间电压源发生切换（{FormatSourceCounts(sourceCounts)}），只使用“{coreVoltageSource}”的样本。"
+                            });
                         }
 
                         if (clockValues.Count == 0 || voltageValues.Count == 0)
@@ -770,6 +919,7 @@ public sealed class SweepEngine
                                     SampleCount = Math.Min(clockValues.Count, voltageValues.Count)
                                 };
                                 stepCores.Add(sample);
+                                stepSources[coreVoltageSource!] = stepSources.GetValueOrDefault(coreVoltageSource!) + 1;
                                 stepPowers.AddRange(packagePowers);
                                 stepTctls.AddRange(tctlValues);
 
@@ -837,8 +987,17 @@ public sealed class SweepEngine
                         EffectiveFMaxCeiling = (int)effectiveCeiling,
                         PackagePower = stepPowers.Count > 0 ? Math.Round(stepPowers.Average(), 1) : 0,
                         Tctl = stepTctls.Count > 0 ? Math.Round(stepTctls.Max(), 1) : 0,
+                        VoltageSource = ChooseVoltageSource(stepSources),
                         Cores = stepCores
                     };
+                    if (stepSources.Count > 1)
+                    {
+                        log(new LogEntry
+                        {
+                            Level = LogLevel.Warning,
+                            Message = $"档位 {requestedActual} MHz：各核心使用的电压源不一致（{FormatSourceCounts(stepSources)}），核心之间的电压不能直接比较。"
+                        });
+                    }
                     result.CoreVoltages.Add(row);
                     coreVoltagesReady(row);
 
@@ -884,25 +1043,7 @@ public sealed class SweepEngine
         finally
         {
             load.Stop();
-            if (!keepFinal && originalFMaxCeiling is >= 400 and <= 8000)
-            {
-                SmuWriteResult restore = smu.SetFMaxCeiling(originalFMaxCeiling);
-                restoreDone = restore.Success;
-                int originalActual = cpu.ToActualFMax(originalFMaxCeiling);
-                log(new LogEntry
-                {
-                    Level = restore.Success ? LogLevel.Success : LogLevel.Error,
-                    Message = restore.Success
-                        ? $"已恢复原始 FMax：SMU 上限 {originalFMaxCeiling} MHz（实际最高 {originalActual} MHz）。"
-                        : $"恢复原始 FMax 失败：{restore.Message} 请立即重启系统。"
-                });
-            }
-            else if (!keepFinal && !restoreDone)
-            {
-                log(new LogEntry { Level = LogLevel.Error, Message = "没有可用的原始 FMax，未能恢复。请重启系统。" });
-            }
-
-            result.RestoreSucceeded = keepFinal ? null : restoreDone;
+            result.RestoreSucceeded = keepFinal ? null : RestoreAfterRun(smu, cpu, log);
         }
     }
 
@@ -927,6 +1068,8 @@ public sealed class SweepEngine
         PhysicalCoreRef core,
         int frequencyActual,
         int frequencyCeiling,
+        ISensorService sensors,
+        ThermalGuard thermal,
         Stopwatch stopwatch,
         Action<SweepProgress> progress,
         CancellationToken cancellationToken)
@@ -940,6 +1083,7 @@ public sealed class SweepEngine
         while ((DateTime.Now - start).TotalSeconds < seconds)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            thermal.Check(sensors.Sample().Tctl);
             double elapsed = (DateTime.Now - start).TotalSeconds;
             progress(new SweepProgress
             {
@@ -970,6 +1114,8 @@ public sealed class SweepEngine
         int frequencyActual,
         int frequencyCeiling,
         string stageLabel,
+        ISensorService sensors,
+        ThermalGuard thermal,
         Stopwatch stopwatch,
         Action<SweepProgress> progress,
         CancellationToken cancellationToken)
@@ -983,6 +1129,7 @@ public sealed class SweepEngine
         while ((DateTime.Now - start).TotalSeconds < seconds)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            thermal.Check(sensors.Sample().Tctl);
             double elapsed = (DateTime.Now - start).TotalSeconds;
             progress(new SweepProgress
             {
@@ -996,6 +1143,44 @@ public sealed class SweepEngine
             });
             await Task.Delay(250, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Picks the voltage source that supplied the most snapshots in a step.
+    /// Ties go to the SMU PM table, which is the preferred source.
+    /// </summary>
+    private static string? ChooseVoltageSource(Dictionary<string, int> snapshotsBySource)
+    {
+        return snapshotsBySource
+            .OrderByDescending(pair => pair.Value)
+            .ThenByDescending(pair => pair.Key.Contains("PM table", StringComparison.OrdinalIgnoreCase)
+                && !pair.Key.Contains("失败", StringComparison.Ordinal))
+            .Select(pair => pair.Key)
+            .FirstOrDefault();
+    }
+
+    private static string FormatSourceCounts(Dictionary<string, int> snapshotsBySource) =>
+        string.Join("，", snapshotsBySource
+            .OrderByDescending(pair => pair.Value)
+            .Select(pair => $"{pair.Key} {pair.Value} 次"));
+
+    /// <summary>Best guess at what held the clock below FMax, from step averages.</summary>
+    private static string DescribeLimiter(double power, double pptLimit, double tctl, double thermalLimit)
+    {
+        List<string> causes = new();
+        if (pptLimit > 0 && power >= pptLimit * 0.95)
+        {
+            causes.Add($"PPT 功耗墙（{power:0} / {pptLimit:0} W）");
+        }
+
+        if (tctl > 0 && tctl >= thermalLimit - 2)
+        {
+            causes.Add($"温度（峰值 {tctl:0.0} °C）");
+        }
+
+        return causes.Count > 0
+            ? string.Join(" 和 ", causes)
+            : "TDC/EDC 电流墙或其他限制";
     }
 
     private static double Median(IEnumerable<double> values)

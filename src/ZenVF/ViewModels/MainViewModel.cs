@@ -13,6 +13,9 @@ namespace ZenVF.ViewModels;
 
 public sealed class MainViewModel : ObservableObject, IDisposable
 {
+    /// <summary>Startup eCLK window: the maximum Core #N / Bus Speed reading within this time is used.</summary>
+    private const int EclkStartupSampleMs = 3000;
+
     private readonly AppOptions _options;
     private readonly SweepEngine _engine = new();
     private readonly DispatcherTimer _telemetryTimer;
@@ -593,7 +596,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public async Task InitializeAsync()
     {
-        Log(LogLevel.Info, "ZenVF 1.0.7 — AMD Zen 4 / Zen 5 V/F 扫描工具（默认 5 秒预热 + 5 秒采样）");
+        Log(LogLevel.Info, $"ZenVF 1.0.7（构建 {BuildStamp()}）— AMD Zen 4 / Zen 5 V/F 扫描工具（默认 5 秒预热 + 5 秒采样）");
         if (!IsDemo)
         {
             Log(LogLevel.Info, IsElevated ? "进程已提权。" : "进程未提权，硬件写入可能不可用。");
@@ -689,17 +692,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
             SmuController? smu = null;
             string? smuError = null;
-            if (cpu.IsAmd)
+            if (!cpu.IsAmd)
+            {
+                smuError = "未检测到 AMD 处理器。";
+            }
+            else if (!cpu.IsSupported)
+            {
+                smuError = $"不支持的处理器（{cpu.Codename}，Family 0x{cpu.Family:X2} Model 0x{cpu.Model:X2}）。仅支持已验证的 Zen 4 / Zen 5 型号，不会访问 SMU。";
+            }
+            else
             {
                 smu = new SmuController(cpu);
                 if (!smu.Initialize(out string error))
                 {
                     smuError = error;
                 }
-            }
-            else
-            {
-                smuError = "未检测到 AMD 处理器。";
             }
 
             LhmSensorService sensors = new(topology, smu, cpu.IsZen4 || cpu.IsZen5);
@@ -808,7 +815,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
         else
         {
-            RangeHintText = $"默认 {start}→{end} MHz";
+            RangeHintText = currentActual > 0
+                ? $"未识别型号 · 上限为当前 {currentActual} MHz · 默认 {start}→{end}"
+                : $"未识别型号 · 无法确定上限";
+            Log(LogLevel.Warning,
+                $"未在型号表中找到“{_cpu.Name}”的默认最高频率；起始频率不允许超过当前最高频率{(currentActual > 0 ? $" {currentActual} MHz" : string.Empty)}。");
         }
 
         await MeasureStartupEclkAsync();
@@ -868,10 +879,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         string previousStage = StageText;
         string previousStatus = StatusText;
-        StageText = "正在读取启动显示频率（约 5 秒）…";
+        StageText = $"正在读取启动显示频率（约 {EclkStartupSampleMs / 1000} 秒）…";
         StatusText = "正在读取启动时的最高核心频率…";
         Log(LogLevel.Info,
-            $"启动 eCLK 读取：连续采样约 5 秒，读取 LHM Core #N 的运行时最大值（HWiNFO Max 列）与 Bus Speed 最大值；PBO 最大频率 {pboMaxMHz} MHz。");
+            $"启动 eCLK 读取：连续采样约 {EclkStartupSampleMs / 1000} 秒，读取 LHM Core #N 的运行时最大值（HWiNFO Max 列）与 Bus Speed 最大值；PBO 最大频率 {pboMaxMHz} MHz。");
 
         List<SensorCoreSample> samples = new();
         double busSpeedMHz = 0;
@@ -904,12 +915,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 while ((DateTime.Now - start).TotalMilliseconds < durationMs && !_disposed);
             }
 
-            // Read for five seconds so the bus/clock maximum converges instead
-            // of depending on whichever 50 ms sample happened first. If the
-            // runtime Max is still below PBO after that, a very short
-            // single-core wake is used to give the Core #N Max sensor a real
-            // boost clock; this is not the all-core stress test.
-            await CollectAsync(5000);
+            // Take the maximum over a short window so the bus/clock maximum
+            // converges instead of depending on whichever 50 ms sample happened
+            // first. If the runtime Max is still below PBO after that, a very
+            // short single-core wake is used to give the Core #N Max sensor a
+            // real boost clock; this is not the all-core stress test.
+            await CollectAsync(EclkStartupSampleMs);
             EclkDetector.Estimate initial = EclkDetector.DetectStartup(samples, pboMaxMHz, busSpeedMHz);
             if (!initial.Detected)
             {
@@ -1131,7 +1142,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        string? error = settings.Validate(_cpu?.StockFMaxMHz, _cpu?.BaseClockMHz);
+        string? error = ValidateSettings(settings);
         ValidationMessage = error ?? string.Empty;
         IsInputValid = error is null;
         _lastSettings = settings;
@@ -1161,6 +1172,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             // under the progress bar and becomes a live ETA once a run starts.
             ProgressTimeText = PlanSummaryText;
         }
+    }
+
+    private string? ValidateSettings(SweepSettings settings)
+    {
+        // For an unrecognised model the only safe ceiling is what the CPU was
+        // already running before ZenVF touched it.
+        uint referenceCeiling = _smu?.RestoreTarget ?? _originalFMaxCeiling;
+        int? currentActual = referenceCeiling > 0 ? ActualFromCeiling(referenceCeiling) : null;
+        return settings.Validate(_cpu?.StockFMaxMHz, _cpu?.BaseClockMHz, currentActual);
     }
 
     private SweepSettings? BuildSettings()
@@ -1266,7 +1286,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 _topology,
                 _cpu,
                 settings,
-                _originalFMaxCeiling,
                 entry => Dispatch(() => AddLog(entry)),
                 progress => Dispatch(() => ApplyProgress(progress)),
                 cores => Dispatch(() => AddCoreVoltages(cores)),
@@ -1311,6 +1330,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         finally
         {
             IsRunning = false;
+            // The subtitle is set to "…测试中…" at start and is otherwise only
+            // replaced when a step completes; a stop/failure before the first
+            // step left it stuck.
+            UpdateChartSubtitle(_currentRun);
             _cts?.Dispose();
             _cts = null;
             _runTask = null;
@@ -1321,13 +1344,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             bool completedRestored = StatusText.StartsWith("已完成 · 已恢复", StringComparison.Ordinal);
             if (stopped || failedRun || completedRestored)
             {
-                bool restored = false;
-                if (_smu?.IsAvailable == true && _originalFMaxCeiling is >= 400 and <= 8000)
-                {
-                    restored = await Task.Run(() =>
-                        _smu.TryGetFMaxCeiling(out uint currentCeiling)
-                        && currentCeiling == _originalFMaxCeiling);
-                }
+                bool restored = await EnsureRestoredAfterRunAsync();
 
                 if (completedRestored)
                 {
@@ -1416,7 +1433,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 _topology,
                 _cpu,
                 settings,
-                _originalFMaxCeiling,
                 entry => Dispatch(() => AddLog(entry)),
                 progress => Dispatch(() => ApplySingleCoreProgress(progress)),
                 frequency => Dispatch(() => AddSingleCoreSweep(frequency)),
@@ -1458,6 +1474,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         finally
         {
             IsRunning = false;
+            // The subtitle is set to "…测试中…" at start and is otherwise only
+            // replaced when a step completes; a stop/failure before the first
+            // step left it stuck.
+            UpdateChartSubtitle(_currentRun);
             _cts?.Dispose();
             _cts = null;
             _runTask = null;
@@ -1468,13 +1488,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             bool completed = StatusText.StartsWith("单核完成", StringComparison.Ordinal);
             if (!IsDemo && (stopped || failedRun || completed))
             {
-                bool restored = false;
-                if (_smu?.IsAvailable == true && _originalFMaxCeiling is >= 400 and <= 8000)
-                {
-                    restored = await Task.Run(() =>
-                        _smu.TryGetFMaxCeiling(out uint currentCeiling)
-                        && currentCeiling == _originalFMaxCeiling);
-                }
+                bool restored = await EnsureRestoredAfterRunAsync();
 
                 if (completed)
                 {
@@ -1578,6 +1592,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         finally
         {
             IsRunning = false;
+            // The subtitle is set to "…测试中…" at start and is otherwise only
+            // replaced when a step completes; a stop/failure before the first
+            // step left it stuck.
+            UpdateChartSubtitle(_currentRun);
             _cts?.Dispose();
             _cts = null;
         }
@@ -1592,7 +1610,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return false;
         }
 
-        string? error = settings.Validate(_cpu?.StockFMaxMHz, _cpu?.BaseClockMHz);
+        string? error = ValidateSettings(settings);
         if (error is not null)
         {
             ValidationMessage = error;
@@ -1699,6 +1717,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         finally
         {
             IsRunning = false;
+            // The subtitle is set to "…测试中…" at start and is otherwise only
+            // replaced when a step completes; a stop/failure before the first
+            // step left it stuck.
+            UpdateChartSubtitle(_currentRun);
             _cts?.Dispose();
             _cts = null;
         }
@@ -1735,7 +1757,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         if (!IsPboArmed)
         {
-            if (!_smu.TryGetFMaxCeiling(out uint currentCeiling))
+            uint currentCeiling;
+            if (_smu.RestoreTarget is uint pending)
+            {
+                // A previous restore did not complete. The value on the SMU
+                // now is ZenVF's own test value, not the user's original, so
+                // keep the value recorded before the first write.
+                currentCeiling = pending;
+                Log(LogLevel.Warning,
+                    $"上次未能确认恢复原始 FMax；继续沿用写入前记录的原始值 {ActualFromCeiling(pending)} MHz（SMU 上限 {pending} MHz）。");
+            }
+            else if (!_smu.TryGetFMaxCeiling(out currentCeiling))
             {
                 Log(LogLevel.Error, "无法读取当前 FMax，接管失败。");
                 return;
@@ -1772,42 +1804,83 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private async Task<bool> RestoreOriginalFMaxAsync(string reason)
     {
-        if (_smu?.IsAvailable != true || _originalFMaxCeiling is < 400 or > 8000)
+        if (_smu?.IsAvailable != true)
         {
             return false;
         }
 
-        SmuWriteResult restore = await Task.Run(() => _smu.SetFMaxCeiling(_originalFMaxCeiling));
+        if (_smu.RestoreTarget is not uint target)
+        {
+            // ZenVF has not changed FMax (or already restored it). Writing
+            // anything here would overwrite changes made by other tools.
+            Log(LogLevel.Info, $"{reason}：本程序未修改 FMax，无需恢复。");
+            return true;
+        }
+
+        SmuWriteResult restore = await Task.Run(_smu.RestoreFMax);
         if (!restore.Success)
-        {
-            Log(LogLevel.Error, $"{reason}：恢复 FMax 失败 — {restore.Message}");
-            return false;
-        }
-
-        bool verified = restore.ReadBackFMax == _originalFMaxCeiling;
-        if (!verified)
-        {
-            verified = await Task.Run(() =>
-                _smu.TryGetFMaxCeiling(out uint readBack) && readBack == _originalFMaxCeiling);
-        }
-
-        if (!verified)
         {
             if (restore.ReadBackFMax > 0)
             {
                 CurrentFMaxText = $"{ActualFromCeiling(restore.ReadBackFMax)} MHz";
             }
 
-            Log(LogLevel.Error,
-                $"{reason}：恢复 FMax 写入成功但回读不一致（期望 SMU 上限 {_originalFMaxCeiling} MHz）— {restore.Message}");
+            Log(LogLevel.Error, $"{reason}：恢复 FMax 失败 — {restore.Message}");
             return false;
         }
 
-        int restoredActual = ActualFromCeiling(_originalFMaxCeiling);
+        int restoredActual = ActualFromCeiling(target);
         CurrentFMaxText = $"{restoredActual} MHz";
         Log(LogLevel.Success,
-            $"{reason}：已恢复原始 FMax —— SMU 上限 {_originalFMaxCeiling} MHz，实际最高加速 {restoredActual} MHz。");
+            $"{reason}：已恢复原始 FMax —— SMU 上限 {target} MHz，实际最高加速 {restoredActual} MHz。");
         return true;
+    }
+
+    /// <summary>
+    /// After a run the engine has already tried to restore. If the SMU still
+    /// reports a pending restore, try once more before telling the user to reboot.
+    /// </summary>
+    private async Task<bool> EnsureRestoredAfterRunAsync()
+    {
+        if (_smu?.IsAvailable != true)
+        {
+            return false;
+        }
+
+        if (!_smu.HasPendingRestore)
+        {
+            return true;
+        }
+
+        return await RestoreOriginalFMaxAsync("测试结束后重试恢复");
+    }
+
+    /// <summary>
+    /// Best-effort synchronous restore for crash, session-end and process-exit
+    /// paths. Only writes when ZenVF itself changed FMax. Never throws.
+    /// </summary>
+    public void EmergencyRestore()
+    {
+        try
+        {
+            _cts?.Cancel();
+        }
+        catch
+        {
+            // The token source may already be disposed.
+        }
+
+        try
+        {
+            if (!IsDemo && _smu?.IsAvailable == true && _smu.HasPendingRestore)
+            {
+                _smu.RestoreFMax();
+            }
+        }
+        catch
+        {
+            // Nothing more can be done on these paths.
+        }
     }
 
     public void Stop()
@@ -1851,6 +1924,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         double? fractionOverride,
         TimeSpan? elapsedOverride)
     {
+        // Progress callbacks are queued on the dispatcher; once Stop was
+        // pressed (or the run ended) they must not overwrite "正在停止…".
+        if (!IsRunning || _cts?.IsCancellationRequested == true)
+        {
+            return;
+        }
+
         double fraction = Math.Clamp(fractionOverride ?? progress.Fraction, 0, 1);
         TimeSpan elapsed = elapsedOverride ?? progress.Elapsed;
         ProgressPercent = (int)Math.Round(fraction * 100);
@@ -2162,20 +2242,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             // Ignore shutdown wait failures.
         }
 
-        try
-        {
-            if (!IsDemo && _smu?.IsAvailable == true && _originalFMaxCeiling is >= 400 and <= 8000)
-            {
-                if (!_smu.TryGetFMaxCeiling(out uint currentCeiling) || currentCeiling != _originalFMaxCeiling)
-                {
-                    _smu.SetFMaxCeiling(_originalFMaxCeiling);
-                }
-            }
-        }
-        catch
-        {
-            // Never block window shutdown.
-        }
+        // Only restores when ZenVF itself left FMax changed; an FMax set by
+        // another tool while ZenVF was open is left alone.
+        EmergencyRestore();
 
         _smu?.Dispose();
         _sensors?.Dispose();
@@ -2266,6 +2335,30 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         int minutes = seconds / 60;
         int remaining = seconds % 60;
         return remaining == 0 ? $"{minutes} 分" : $"{minutes} 分 {remaining} 秒";
+    }
+
+    /// <summary>
+    /// Write time of the running assembly, so a log shows which build was
+    /// tested (the version number alone does not change between local builds).
+    /// </summary>
+    private static string BuildStamp()
+    {
+        try
+        {
+            string path = typeof(MainViewModel).Assembly.Location;
+            if (string.IsNullOrEmpty(path))
+            {
+                path = Environment.ProcessPath ?? string.Empty;
+            }
+
+            return File.Exists(path)
+                ? File.GetLastWriteTime(path).ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)
+                : "未知";
+        }
+        catch
+        {
+            return "未知";
+        }
     }
 
     private static string FormatEclkBclk(double ratio)

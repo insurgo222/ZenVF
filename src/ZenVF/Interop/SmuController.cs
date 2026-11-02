@@ -31,6 +31,8 @@ public sealed class SmuController : IDisposable
     private readonly CpuDescriptor _cpu;
     private readonly object _sync = new();
     private readonly object _pmTableSync = new();
+    private readonly object _writeSync = new();
+    private uint? _restoreTarget;
     private FmaxCommands? _commands;
     private bool _initialized;
     private bool _disposed;
@@ -70,6 +72,14 @@ public sealed class SmuController : IDisposable
             _initialized = true;
             try
             {
+                if (!_cpu.IsSupported)
+                {
+                    InitializationError =
+                        $"不支持的处理器（Family 0x{_cpu.Family:X2} Model 0x{_cpu.Model:X2}）。仅支持已验证的 Zen 4 / Zen 5 型号，不会向 SMU 发送命令。";
+                    error = InitializationError;
+                    return false;
+                }
+
                 if (!PawnIoNative.IsInstalled)
                 {
                     InitializationError = "未安装 PawnIO 驱动。";
@@ -93,23 +103,19 @@ public sealed class SmuController : IDisposable
                 SmuVersion = ReadUInt("ioctl_get_smu_version");
                 ResolvePmTable();
 
-                List<FmaxCommands> candidates = _cpu.IsApu
-                    ? new[] { FmaxCommands.Apu, FmaxCommands.Desktop }.ToList()
-                    : new[] { FmaxCommands.Desktop, FmaxCommands.Apu }.ToList();
-
-                foreach (FmaxCommands candidate in candidates)
+                // Only the command set that belongs to this platform is used.
+                // Probing the other set would send command ids whose meaning
+                // on this SMU is unknown.
+                FmaxCommands candidate = _cpu.IsApu ? FmaxCommands.Apu : FmaxCommands.Desktop;
+                if (TryReadFMax(candidate, out uint value) && value is >= 400 and <= 8000)
                 {
-                    if (TryReadFMax(candidate, out uint value) && value is >= 400 and <= 8000)
-                    {
-                        _commands = candidate;
-                        LastKnownFMaxCeiling = value;
-                        break;
-                    }
+                    _commands = candidate;
+                    LastKnownFMaxCeiling = value;
                 }
 
                 if (_commands is null)
                 {
-                    InitializationError = "RSMU 未返回有效的 FMax。BIOS 可能锁定了 PBO，或该 CPU 不受支持。";
+                    InitializationError = $"RSMU（{candidate.Name}）未返回有效的 FMax。BIOS 可能锁定了 PBO。";
                     error = InitializationError;
                     return false;
                 }
@@ -148,20 +154,95 @@ public sealed class SmuController : IDisposable
         return false;
     }
 
-    /// <summary>Writes the raw SMU FMax ceiling. Callers must convert actual boost values first.</summary>
+    /// <summary>
+    /// SMU FMax ceiling that was active before ZenVF's first unrestored write.
+    /// Null when ZenVF has not changed FMax, or after a verified restore.
+    /// </summary>
+    public uint? RestoreTarget
+    {
+        get
+        {
+            lock (_writeSync)
+            {
+                return _restoreTarget;
+            }
+        }
+    }
+
+    /// <summary>True while ZenVF has written an FMax that has not yet been verified as restored.</summary>
+    public bool HasPendingRestore => RestoreTarget is not null;
+
+    /// <summary>
+    /// Writes the raw SMU FMax ceiling. Callers must convert actual boost values first.
+    /// The first write of a dirty period reads the current ceiling and records
+    /// it as <see cref="RestoreTarget"/>; the write is refused if that read fails.
+    /// </summary>
     public SmuWriteResult SetFMaxCeiling(uint ceilingFMax)
     {
-        FmaxCommands? commands = _commands;
-        if (commands is null)
+        lock (_writeSync)
         {
-            return new SmuWriteResult(false, 0, "SMU 未连接。");
-        }
+            FmaxCommands? commands = _commands;
+            if (commands is null)
+            {
+                return new SmuWriteResult(false, 0, "SMU 未连接。");
+            }
 
-        if (ceilingFMax is < 400 or > 8000)
+            if (ceilingFMax is < 400 or > 8000)
+            {
+                return new SmuWriteResult(false, 0, $"FMax 上限 {ceilingFMax} MHz 超出安全范围。");
+            }
+
+            if (_restoreTarget is null)
+            {
+                if (!TryReadFMax(commands, out uint before))
+                {
+                    return new SmuWriteResult(false, 0, "写入前无法读取当前 FMax，无法记录恢复值，已拒绝写入。");
+                }
+
+                _restoreTarget = before;
+            }
+
+            SmuWriteResult result = WriteFMaxCore(commands, ceilingFMax);
+            if (result.Success && ceilingFMax == _restoreTarget && result.ReadBackFMax == ceilingFMax)
+            {
+                // Verified return to the pre-write value: nothing left to restore.
+                _restoreTarget = null;
+            }
+
+            return result;
+        }
+    }
+
+    /// <summary>
+    /// Writes <see cref="RestoreTarget"/> back if ZenVF changed FMax. Returns
+    /// success without touching the SMU when there is nothing to restore, so
+    /// external FMax changes made by other tools are never overwritten.
+    /// </summary>
+    public SmuWriteResult RestoreFMax()
+    {
+        lock (_writeSync)
         {
-            return new SmuWriteResult(false, 0, $"FMax 上限 {ceilingFMax} MHz 超出安全范围。");
-        }
+            if (_restoreTarget is not uint target)
+            {
+                return new SmuWriteResult(true, LastKnownFMaxCeiling ?? 0, "FMax 未被修改，无需恢复。");
+            }
 
+            SmuWriteResult result = SetFMaxCeiling(target);
+            if (result.Success && _restoreTarget is not null)
+            {
+                return result with
+                {
+                    Success = false,
+                    Message = $"已写入原始 FMax 上限 {target} MHz，但回读 {result.ReadBackFMax} MHz 不一致或回读失败。"
+                };
+            }
+
+            return result;
+        }
+    }
+
+    private SmuWriteResult WriteFMaxCore(FmaxCommands commands, uint ceilingFMax)
+    {
         uint[] args = new uint[6];
         args[0] = ceilingFMax & 0xFFFFF;
         int hr = SendRsmu(commands.Set, ref args);
@@ -175,7 +256,7 @@ public sealed class SmuController : IDisposable
         LastKnownFMaxCeiling = readBack ? current : ceilingFMax;
         return new SmuWriteResult(
             true,
-            current,
+            readBack ? current : 0,
             readBack
                 ? $"SMU FMax 上限已写入 {ceilingFMax} MHz，回读 {current} MHz。"
                 : $"SMU FMax 上限已写入 {ceilingFMax} MHz，但回读失败。");
@@ -326,7 +407,12 @@ public sealed class SmuController : IDisposable
             return true;
         }
 
-        // Older APUs expect selector 3 in arg0 for the GetBoostLimit command.
+        if (!ReferenceEquals(commands, FmaxCommands.Apu))
+        {
+            return false;
+        }
+
+        // Some APU firmware expects selector 3 in arg0 for GetBoostLimit.
         args = new uint[6];
         args[0] = 3;
         hr = SendRsmu(commands.Get, ref args);

@@ -14,6 +14,12 @@ public partial class App : Application
 {
     private AppOptions _options = new();
 
+    /// <summary>Set by the main window; restores FMax if ZenVF left it changed. Must not throw.</summary>
+    internal static Action? EmergencyRestore { get; set; }
+
+    /// <summary>True once the app is going down because of an unhandled error.</summary>
+    internal static bool IsFatalShutdown { get; private set; }
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -64,6 +70,15 @@ public partial class App : Application
         }
 
         DispatcherUnhandledException += OnDispatcherUnhandledException;
+        // A crash on a worker thread terminates the process without closing
+        // the window, so FMax must be restored from these hooks as well.
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            WriteCrashLog(args.ExceptionObject?.ToString() ?? "unknown exception");
+            EmergencyRestore?.Invoke();
+        };
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => EmergencyRestore?.Invoke();
+        SessionEnding += (_, _) => EmergencyRestore?.Invoke();
         ThemeManager.Initialize(_options);
 
         if (_options.ScreenshotPath is not null)
@@ -122,19 +137,28 @@ public partial class App : Application
         return argument.Contains(' ') ? $"\"{argument.Replace("\"", "\\\"")}\"" : argument;
     }
 
-    private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
+    private static void WriteCrashLog(string text)
     {
         try
         {
             string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ZenVF");
             Directory.CreateDirectory(folder);
             File.AppendAllText(Path.Combine(folder, "crash.log"),
-                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {e.Exception}{Environment.NewLine}{Environment.NewLine}");
+                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {text}{Environment.NewLine}{Environment.NewLine}");
         }
         catch
         {
             // Never mask the original exception with a logging failure.
         }
+    }
+
+    private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
+    {
+        WriteCrashLog(e.Exception.ToString());
+        IsFatalShutdown = true;
+        // Restore before the modal box: the user may leave it open or kill
+        // the process from Task Manager.
+        EmergencyRestore?.Invoke();
 
         MessageBox.Show("ZenVF 遇到未处理的错误：\n\n" + e.Exception.Message +
                         "\n\n若正在扫描，请重启系统以清除可能残留的 FMax 设置。",

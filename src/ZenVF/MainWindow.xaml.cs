@@ -33,6 +33,7 @@ public partial class MainWindow : Window
         _screenshotMode = options.ScreenshotPath is not null;
         _screenshotPath = options.ScreenshotPath;
         _vm = new MainViewModel(options);
+        App.EmergencyRestore = _vm.EmergencyRestore;
         DataContext = _vm;
         _vm.LogItems.CollectionChanged += OnLogItemsChanged;
         _vm.SingleCoreSweepStarted += (_, _) => ChartTabs.SelectedIndex = 2;
@@ -188,7 +189,8 @@ public partial class MainWindow : Window
 
     private void Window_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
-        if (_vm.IsRunning)
+        // During a crash shutdown Cancel is ignored anyway, so do not ask.
+        if (_vm.IsRunning && !App.IsFatalShutdown)
         {
             MessageBoxResult result = MessageBox.Show(
                 "测试仍在进行。关闭程序会停止测试并恢复原始频率。\n\n仍要关闭吗？",
@@ -218,6 +220,10 @@ public partial class MainWindow : Window
     private void OnClosed(object? sender, EventArgs e)
     {
         ThemeManager.ThemeChanged -= OnThemeChanged;
+        // Closed always fires, even when Closing was cancelled by a dialog
+        // but the application is shutting down regardless. Shutdown is idempotent.
+        _vm.Shutdown();
+        App.EmergencyRestore = null;
     }
 
     private void Theme_Click(object sender, RoutedEventArgs e)

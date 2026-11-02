@@ -50,7 +50,14 @@ public sealed class SweepSettings
         return values;
     }
 
-    public string? Validate(int? stockFMax, int? baseClockMHz = null)
+    /// <param name="stockFMax">Model default actual FMax; null when the model is not in the table.</param>
+    /// <param name="baseClockMHz">Model base clock used as the lower bound.</param>
+    /// <param name="currentFMax">
+    /// Actual FMax read from the SMU before any write. Used as the upper bound
+    /// when the model is unknown, so an unrecognised CPU can never be pushed
+    /// above what it is already running.
+    /// </param>
+    public string? Validate(int? stockFMax, int? baseClockMHz = null, int? currentFMax = null)
     {
         if (StepMHz < 1)
         {
@@ -99,6 +106,17 @@ public sealed class SweepSettings
             {
                 return $"结束频率低于建议下限（{minEnd} MHz）。";
             }
+        }
+        else if (currentFMax is int current and > 0)
+        {
+            if (StartFMax > current)
+            {
+                return $"未识别的 CPU 型号：起始频率不能高于当前最高频率 {current} MHz。";
+            }
+        }
+        else
+        {
+            return "未识别的 CPU 型号，且无法读取当前最高频率，不能确定安全上限。";
         }
 
         return null;
@@ -149,6 +167,11 @@ public sealed class SweepPoint
     public double PackagePower { get; init; }
     public int SampleCount { get; init; }
     public DateTime Timestamp { get; init; } = DateTime.Now;
+    /// <summary>
+    /// True when the measured clock is clearly below the FMax step, i.e. the
+    /// point is limited by power, current or temperature rather than by FMax.
+    /// </summary>
+    public bool IsClockLimited { get; init; }
 }
 
 public sealed class SweepSeries
@@ -244,6 +267,10 @@ public sealed class FrequencyCoreVoltages
     public int EffectiveFMaxCeiling { get; init; }
     public double PackagePower { get; init; }
     public double Tctl { get; init; }
+    /// <summary>Voltage source used for every core in this step (one source per step).</summary>
+    public string? VoltageSource { get; init; }
+    /// <summary>True when the loaded cores ran clearly below this FMax step (power/current/thermal limited).</summary>
+    public bool IsClockLimited { get; init; }
     public List<CoreVoltageSample> Cores { get; init; } = new();
 
     public CoreVoltageSample? MaxVoltageCore =>
