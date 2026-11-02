@@ -19,3 +19,10 @@ Thumbs.db
 .codex/
 .cursor/
 .gemini/
+.claude/
+
+# Local Supabase CLI / MCP tooling (not part of the ZenVF build)
+node_modules/
+package.json
+package-lock.json
+.mcp.json
