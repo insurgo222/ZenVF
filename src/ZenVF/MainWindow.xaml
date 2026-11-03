@@ -364,12 +364,14 @@
                                 </Grid>
 
                                 <TextBlock Text="CCD" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
-                                <!-- Two equal columns that fill the rail; the cards used to be
-                                     a fixed 152px and left a ragged gap on the right. -->
+                                <!-- One column for a single-CCD part (9800X3D) so its card spans
+                                     the rail, two columns otherwise; rows follow from the count.
+                                     (A bare UniformGrid makes a square grid: 2 CCDs became 2x2
+                                     with an empty row.) -->
                                 <ItemsControl ItemsSource="{Binding CcdOptions}" Margin="-4,0,-4,0">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate>
-                                            <UniformGrid Columns="2" />
+                                            <UniformGrid Columns="{Binding CcdColumns}" />
                                         </ItemsPanelTemplate>
                                     </ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate>

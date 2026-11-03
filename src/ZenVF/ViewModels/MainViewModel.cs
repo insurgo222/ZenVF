@@ -134,6 +134,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
 
     public ObservableCollection<CcdOption> CcdOptions { get; } = new();
+
+    /// <summary>Columns for the CCD card grid: a lone CCD card spans the full rail width.</summary>
+    public int CcdColumns => CcdOptions.Count <= 1 ? 1 : 2;
     public ObservableCollection<CoreMapGroup> CoreMap { get; } = new();
     public ObservableCollection<LogEntry> LogItems { get; } = new();
 
@@ -1024,6 +1027,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             };
             CcdOptions.Add(option);
         }
+
+        OnPropertyChanged(nameof(CcdColumns));
     }
 
     private void BuildCoreMap()
