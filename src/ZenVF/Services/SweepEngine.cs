@@ -327,7 +327,7 @@ public sealed class SweepEngine
 
                 // Reduce every core independently, then keep the full set so the
                 // secondary chart can show per-core voltages at this FMax step.
-                List<CoreVoltageSample> coreMedians = new();
+                List<CoreVoltageSample> coreSummaries = new();
                 foreach ((int coreId, List<SensorCoreSample> list) in coreSamples.OrderBy(pair => pair.Key))
                 {
                     if (list.Count == 0 || !settings.SelectedCcds.Contains(list[0].CcdIndex))
@@ -349,7 +349,10 @@ public sealed class SweepEngine
                     }
 
                     double clock = Median(clockValues);
-                    double voltage = Median(voltageValues);
+                    // Peak voltage over the sampling window (user choice): the
+                    // highest VID the core actually requested at this step.
+                    // Clock and temperature stay medians.
+                    double voltage = voltageValues.Max();
                     double temperature = Median(list.Where(s => s.Temperature > 0).Select(s => s.Temperature));
                     if (!SensorValueSanity.IsPlausibleClock(clock)
                         || !SensorValueSanity.IsPlausibleVoltage(voltage))
@@ -357,7 +360,7 @@ public sealed class SweepEngine
                         continue;
                     }
 
-                    coreMedians.Add(new CoreVoltageSample
+                    coreSummaries.Add(new CoreVoltageSample
                     {
                         CoreId = coreId,
                         CcdIndex = list[0].CcdIndex,
@@ -367,9 +370,9 @@ public sealed class SweepEngine
                     });
                 }
 
-                if (coreMedians.Count > 0)
+                if (coreSummaries.Count > 0)
                 {
-                    double stepClock = Median(coreMedians.Select(c => c.ClockMHz));
+                    double stepClock = Median(coreSummaries.Select(c => c.ClockMHz));
                     bool stepLimited = stepClock < effectiveActual - ClockShortfallToleranceMHz;
                     FrequencyCoreVoltages frequencyCores = new()
                     {
@@ -381,7 +384,7 @@ public sealed class SweepEngine
                         Tctl = Math.Round(tctl, 1),
                         VoltageSource = stepVoltageSource,
                         IsClockLimited = stepLimited,
-                        Cores = coreMedians
+                        Cores = coreSummaries
                     };
 
                     if (stepLimited)
@@ -398,7 +401,7 @@ public sealed class SweepEngine
 
                     foreach (SweepSeries ccdSeries in series)
                     {
-                        CoreVoltageSample? worstCore = coreMedians
+                        CoreVoltageSample? worstCore = coreSummaries
                             .Where(c => c.CcdIndex == ccdSeries.CcdIndex)
                             .OrderByDescending(c => c.Voltage)
                             .ThenBy(c => c.CoreId)
@@ -446,7 +449,7 @@ public sealed class SweepEngine
                     }
                 }
 
-                if (coreMedians.Count == 0)
+                if (coreSummaries.Count == 0)
                 {
                     log(new LogEntry { Level = LogLevel.Warning, Message = $"FMax 实际 {requestedActual} MHz（SMU 上限 {requestedCeiling} MHz）：没有拿到有效的核心频率/电压样本。" });
                 }
@@ -895,7 +898,8 @@ public sealed class SweepEngine
                         else
                         {
                             double clock = Median(clockValues);
-                            double voltage = Median(voltageValues);
+                            // Peak VDDCR_VDD over the window, matching the all-core path.
+                            double voltage = voltageValues.Max();
                             double temperature = Median(temperatureValues);
                             if (!SensorValueSanity.IsPlausibleClock(clock)
                                 || !SensorValueSanity.IsPlausibleVoltage(voltage))

@@ -203,7 +203,7 @@ public sealed class SweepRunResult
     /// </summary>
     public required List<SweepSeries> Series { get; init; }
     /// <summary>
-    /// One entry per tested FMax step, containing the median voltage of every
+    /// One entry per tested FMax step, containing the peak voltage of every
     /// core. For an all-core run it feeds the per-core chart and the per-core
     /// voltage window; for a single-core run every sample was collected with
     /// only that core loaded.
