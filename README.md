@@ -124,8 +124,11 @@ ZenVF 与 AMD、PawnIO、LibreHardwareMonitor、OxyPlot、HWiNFO 均无隶属关
 
 ```powershell
 dotnet build src/ZenVF/ZenVF.csproj -c Release
+dotnet test tests/ZenVF.Tests/ZenVF.Tests.csproj -c Release
 .\publish.ps1
 ```
+
+`dotnet test` 运行单元测试，不需要硬件、管理员权限或 PawnIO，覆盖：FMax 恢复规则、型号识别与平台支持、扫描参数校验、电压源选择、温度保护、eCLK 判断，以及 CSV / Markdown 导出格式。
 
 输出目录：`dist\`。`publish.ps1` 默认生成 `win-x64` 自包含包；加 `-FrameworkDependent` 可生成依赖框架的版本。`publish.ps1` 会先清空 `dist\`，打包前请先关闭正在运行的 ZenVF。
 

@@ -2,4 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/ZenVF/ZenVF.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ZenVF.Tests/ZenVF.Tests.csproj" />
+  </Folder>
 </Solution>
