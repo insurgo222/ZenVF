@@ -20,6 +20,10 @@ public sealed class LoadGenerator : IDisposable
     private readonly ConcurrentBag<int> _observedCpus = new();
     private volatile bool _running;
     private int _activeThreads;
+    // Bumped by Stop(). A thread only touches _activeThreads while its own
+    // generation is current, so a straggler that outlives Stop()'s join
+    // cannot push the next run's count below zero.
+    private int _generation;
     private string? _lastError;
 
     public string? LastError => _lastError;
@@ -67,7 +71,8 @@ public sealed class LoadGenerator : IDisposable
                     continue;
                 }
 
-                Thread thread = new(() => LoadLoop(cpu))
+                int generation = Volatile.Read(ref _generation);
+                Thread thread = new(() => LoadLoop(cpu, generation))
                 {
                     IsBackground = true,
                     Name = $"ZenVF-SSE2-CCD{ccd.Index}-CPU{cpu}",
@@ -126,7 +131,8 @@ public sealed class LoadGenerator : IDisposable
             }
 
             int targetCpu = cpu;
-            Thread thread = new(() => LoadLoop(targetCpu))
+            int generation = Volatile.Read(ref _generation);
+            Thread thread = new(() => LoadLoop(targetCpu, generation))
             {
                 IsBackground = true,
                 Name = $"ZenVF-SSE2-Single-CCD{core.CcdIndex}-Core{core.DisplayCoreId}-CPU{targetCpu}",
@@ -156,13 +162,15 @@ public sealed class LoadGenerator : IDisposable
 
         _threads.Clear();
         _observedCpus.Clear();
+        Interlocked.Increment(ref _generation);
         Volatile.Write(ref _activeThreads, 0);
     }
 
     public void Dispose() => Stop();
 
-    private void LoadLoop(int cpu)
+    private void LoadLoop(int cpu, int generation)
     {
+        bool counted = false;
         try
         {
             Thread.BeginThreadAffinity();
@@ -196,7 +204,12 @@ public sealed class LoadGenerator : IDisposable
             Thread.Sleep(1);
             _observedCpus.Add(NativeMethods.GetCurrentProcessorNumber());
 
-            Interlocked.Increment(ref _activeThreads);
+            if (generation == Volatile.Read(ref _generation))
+            {
+                Interlocked.Increment(ref _activeThreads);
+                counted = true;
+            }
+
             if (Sse2.IsSupported)
             {
                 RunSse2Loop();
@@ -213,7 +226,13 @@ public sealed class LoadGenerator : IDisposable
         }
         finally
         {
-            Interlocked.Decrement(ref _activeThreads);
+            // Only undo our own increment, and only within our generation;
+            // a thread that failed before counting itself must not subtract.
+            if (counted && generation == Volatile.Read(ref _generation))
+            {
+                Interlocked.Decrement(ref _activeThreads);
+            }
+
             Thread.EndThreadAffinity();
         }
     }
