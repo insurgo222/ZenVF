@@ -95,6 +95,20 @@ public sealed class LhmSensorService : ISensorService
 
             try
             {
+                // Take the PM table snapshot BEFORE LHM's update. LHM's update
+                // runs code on every core, and a snapshot taken right after it
+                // read the per-core VIDs ~4 mV high (VDDCR_VDD ~2 mV) under
+                // all-core load; read first, the medians match HWiNFO within
+                // ~1 mV. Measured on a 9800X3D, 2026-11-03.
+                int expectedCores = _topology.Ccds.Sum(c => c.PhysicalCoreCount);
+                bool pmCoreVoltages = false;
+                double[] pmVoltages = Array.Empty<double>();
+                double packageVoltage = 0;
+                if (_smu is not null && expectedCores > 0)
+                {
+                    pmCoreVoltages = _smu.TryReadCoreVoltages(expectedCores, out pmVoltages, out packageVoltage);
+                }
+
                 _cpu.Update();
                 List<ISensor> sensors = _cpu.Sensors.ToList();
                 Dictionary<int, double> clocks = new();
@@ -177,10 +191,6 @@ public sealed class LhmSensorService : ISensorService
                 double vddcrVdd = 0;
                 if (_smu is not null && cores.Count > 0)
                 {
-                    bool pmCoreVoltages = _smu.TryReadCoreVoltages(
-                        cores.Count,
-                        out double[] pmVoltages,
-                        out double packageVoltage);
                     if (SensorValueSanity.IsPlausibleVoltage(packageVoltage))
                     {
                         vddcrVdd = packageVoltage;
