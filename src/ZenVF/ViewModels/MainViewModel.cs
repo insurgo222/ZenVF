@@ -1172,6 +1172,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Log(LogLevel.Info,
             $"开始全核测试：{settings!.StepCount} 个频率档位（{settings.StartFMax}→{settings.EndFMax} MHz，写入上限 {CeilingFromActual(settings.StartFMax)}→{CeilingFromActual(settings.EndFMax)} MHz），CCD {string.Join(", ", settings.SelectedCcds.OrderBy(i => i))}，全核负载。");
 
+        RunOutcome outcome = RunOutcome.Failed;
+        string completedStage = string.Empty;
         try
         {
             Task<SweepRunResult> runTask = _engine.RunAsync(
@@ -1194,20 +1196,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             RefreshHasResult();
             RebuildCharts(result, false);
             UpdateChartSubtitle(result);
-            StatusText = !result.Settings.RestoreAfterTest
-                ? "已完成 · 保留最终频率"
-                : result.RestoreSucceeded == false
-                    ? "已完成 · 恢复原始频率失败，请重启系统"
-                    : "已完成 · 已恢复原始频率";
-            StageText = result.RestoreSucceeded == false
-                ? "恢复失败 · 请立即重启系统"
-                : $"完成 · {result.CoreVoltages.Count} 个频率档位";
+            outcome = result.Settings.RestoreAfterTest ? RunOutcome.Completed : RunOutcome.CompletedKeepFinal;
+            completedStage = $"完成 · {result.CoreVoltages.Count} 个频率档位";
+            StatusText = "已完成 · 正在确认原始频率";
+            StageText = completedStage;
             ProgressPercent = 100;
             ProgressTimeText = $"总用时 {FormatClock((result.Finished ?? DateTime.Now) - result.Started)}";
             Log(LogLevel.Success, "全核测试结束。可查看图表、每核电压或导出 CSV。");
         }
         catch (OperationCanceledException)
         {
+            outcome = RunOutcome.Stopped;
             StatusText = "已停止 · 正在恢复原始频率";
             StageText = "用户中止";
             ProgressPercent = 0;
@@ -1232,31 +1231,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _cts = null;
             _runTask = null;
             await RefreshSmuStateAsync();
-
-            bool stopped = StatusText.StartsWith("已停止", StringComparison.Ordinal);
-            bool failedRun = StatusText.StartsWith("全核测试失败", StringComparison.Ordinal);
-            bool completedRestored = StatusText.StartsWith("已完成 · 已恢复", StringComparison.Ordinal);
-            if (stopped || failedRun || completedRestored)
-            {
-                bool restored = await EnsureRestoredAfterRunAsync();
-
-                if (completedRestored)
-                {
-                    if (!restored)
-                    {
-                        StatusText = "已完成 · 恢复原始频率失败，请重启系统";
-                        StageText = "恢复失败 · 请立即重启系统";
-                    }
-                }
-                else
-                {
-                    string prefix = failedRun ? "全核测试失败" : "已停止";
-                    StatusText = restored
-                        ? $"{prefix} · 已恢复原始频率"
-                        : $"{prefix} · 恢复原始频率失败，请重启系统";
-                    StageText = restored ? "已恢复原始频率" : "请立即重启系统";
-                }
-            }
+            await FinishRunAsync(outcome, "已完成", "全核测试失败", completedStage);
         }
     }
 
@@ -1319,6 +1294,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             $"开始每核单独测试：{settings.StepCount} 个频率档位（{settings.StartFMax}→{settings.EndFMax} MHz），每档依次测试 {coreCount} 个物理核心，每核 {settings.WarmupSeconds} 秒预热 / {settings.SampleSeconds} 秒采样。");
         SingleCoreSweepStarted?.Invoke(this, EventArgs.Empty);
 
+        RunOutcome outcome = RunOutcome.Failed;
+        string completedStage = string.Empty;
         try
         {
             Task<SweepRunResult> runTask = _engine.RunSingleCoreSweepAsync(
@@ -1340,18 +1317,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             RefreshHasResult();
             RebuildSingleCoreChart(false);
             UpdateChartSubtitle(_currentRun);
-            StatusText = result.RestoreSucceeded == false
-                ? "单核完成 · 恢复原始频率失败，请重启系统"
-                : "单核完成 · 已恢复原始频率";
-            StageText = result.RestoreSucceeded == false
-                ? "恢复失败 · 请立即重启系统"
-                : $"完成 · {result.CoreVoltages.Count} 个频率档位 · {result.CoreVoltages.Sum(f => f.Cores.Count)} 个核心样本";
+            outcome = result.Settings.RestoreAfterTest ? RunOutcome.Completed : RunOutcome.CompletedKeepFinal;
+            completedStage = $"完成 · {result.CoreVoltages.Count} 个频率档位 · {result.CoreVoltages.Sum(f => f.Cores.Count)} 个核心样本";
+            StatusText = "单核完成 · 正在确认原始频率";
+            StageText = completedStage;
             ProgressPercent = 100;
             ProgressTimeText = $"总用时 {FormatClock((result.Finished ?? DateTime.Now) - result.Started)}";
             Log(LogLevel.Success, "单核测试结束。可查看“单核 V/F”图，或导出 CSV。");
         }
         catch (OperationCanceledException)
         {
+            outcome = RunOutcome.Stopped;
             StatusText = "已停止 · 正在恢复原始频率";
             StageText = "用户中止单核测试";
             ProgressPercent = 0;
@@ -1376,31 +1352,53 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _cts = null;
             _runTask = null;
             await RefreshSmuStateAsync();
-
-            bool stopped = StatusText.StartsWith("已停止", StringComparison.Ordinal);
-            bool failedRun = StatusText.StartsWith("单核测试失败", StringComparison.Ordinal);
-            bool completed = StatusText.StartsWith("单核完成", StringComparison.Ordinal);
-            if (!IsDemo && (stopped || failedRun || completed))
-            {
-                bool restored = await EnsureRestoredAfterRunAsync();
-
-                if (completed)
-                {
-                    StatusText = restored
-                        ? "单核完成 · 已恢复原始频率"
-                        : "单核完成 · 恢复原始频率失败，请重启系统";
-                    StageText = restored ? StageText : "恢复失败 · 请立即重启系统";
-                }
-                else
-                {
-                    string prefix = failedRun ? "单核测试失败" : "已停止";
-                    StatusText = restored
-                        ? $"{prefix} · 已恢复原始频率"
-                        : $"{prefix} · 恢复原始频率失败，请重启系统";
-                    StageText = restored ? "已恢复原始频率" : "请立即重启系统";
-                }
-            }
+            await FinishRunAsync(outcome, "单核完成", "单核测试失败", completedStage);
         }
+    }
+
+    /// <summary>How a hardware run ended; decides the restore check and the final status.</summary>
+    private enum RunOutcome
+    {
+        Completed,
+        CompletedKeepFinal,
+        Stopped,
+        Failed
+    }
+
+    /// <summary>
+    /// Common end of a hardware run. Every outcome except an intentional
+    /// keep-final goes through EnsureRestoredAfterRunAsync, which retries a
+    /// pending restore and is a no-op when nothing is pending. The outcome
+    /// comes from the run itself, not from parsing the status text (the old
+    /// prefix checks skipped the retry when a completed all-core run had
+    /// already failed to restore).
+    /// </summary>
+    private async Task FinishRunAsync(
+        RunOutcome outcome,
+        string completedLabel,
+        string failedLabel,
+        string completedStage)
+    {
+        if (outcome == RunOutcome.CompletedKeepFinal)
+        {
+            StatusText = $"{completedLabel} · 保留最终频率";
+            StageText = completedStage;
+            return;
+        }
+
+        bool restored = await EnsureRestoredAfterRunAsync();
+        string label = outcome switch
+        {
+            RunOutcome.Completed => completedLabel,
+            RunOutcome.Stopped => "已停止",
+            _ => failedLabel
+        };
+        StatusText = restored
+            ? $"{label} · 已恢复原始频率"
+            : $"{label} · 恢复原始频率失败，请重启系统";
+        StageText = restored
+            ? (outcome == RunOutcome.Completed ? completedStage : "已恢复原始频率")
+            : "恢复失败 · 请立即重启系统";
     }
 
     private async Task RunDemoSingleCoreSweepAsync(SweepSettings settings)

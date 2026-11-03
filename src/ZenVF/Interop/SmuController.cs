@@ -32,7 +32,7 @@ public sealed class SmuController : IDisposable
     private readonly object _sync = new();
     private readonly object _pmTableSync = new();
     private readonly object _writeSync = new();
-    private uint? _restoreTarget;
+    private readonly FMaxRestoreTracker _restore = new();
     private FmaxCommands? _commands;
     private bool _initialized;
     private bool _disposed;
@@ -164,7 +164,7 @@ public sealed class SmuController : IDisposable
         {
             lock (_writeSync)
             {
-                return _restoreTarget;
+                return _restore.Target;
             }
         }
     }
@@ -192,23 +192,13 @@ public sealed class SmuController : IDisposable
                 return new SmuWriteResult(false, 0, $"FMax 上限 {ceilingFMax} MHz 超出安全范围。");
             }
 
-            if (_restoreTarget is null)
+            if (!_restore.EnsureCaptured(() => TryReadFMax(commands, out uint before) ? before : null))
             {
-                if (!TryReadFMax(commands, out uint before))
-                {
-                    return new SmuWriteResult(false, 0, "写入前无法读取当前 FMax，无法记录恢复值，已拒绝写入。");
-                }
-
-                _restoreTarget = before;
+                return new SmuWriteResult(false, 0, "写入前无法读取当前 FMax，无法记录恢复值，已拒绝写入。");
             }
 
             SmuWriteResult result = WriteFMaxCore(commands, ceilingFMax);
-            if (result.Success && ceilingFMax == _restoreTarget && result.ReadBackFMax == ceilingFMax)
-            {
-                // Verified return to the pre-write value: nothing left to restore.
-                _restoreTarget = null;
-            }
-
+            _restore.RecordWrite(ceilingFMax, result.Success, result.ReadBackFMax);
             return result;
         }
     }
@@ -222,13 +212,13 @@ public sealed class SmuController : IDisposable
     {
         lock (_writeSync)
         {
-            if (_restoreTarget is not uint target)
+            if (_restore.Target is not uint target)
             {
                 return new SmuWriteResult(true, LastKnownFMaxCeiling ?? 0, "FMax 未被修改，无需恢复。");
             }
 
             SmuWriteResult result = SetFMaxCeiling(target);
-            if (result.Success && _restoreTarget is not null)
+            if (result.Success && _restore.HasPendingRestore)
             {
                 return result with
                 {

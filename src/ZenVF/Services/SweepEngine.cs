@@ -530,7 +530,7 @@ public sealed class SweepEngine
     /// sensor jitter; a sustained one means the CPU is thermally throttling
     /// and the V/F point is no longer meaningful.
     /// </summary>
-    private sealed class ThermalGuard(double limitC, string context)
+    internal sealed class ThermalGuard(double limitC, string context)
     {
         public const int RequiredConsecutive = 3;
         private int _hits;
@@ -1157,7 +1157,7 @@ public sealed class SweepEngine
     /// Picks the voltage source that supplied the most snapshots in a step.
     /// Ties go to the SMU PM table, which is the preferred source.
     /// </summary>
-    private static string? ChooseVoltageSource(Dictionary<string, int> snapshotsBySource)
+    internal static string? ChooseVoltageSource(Dictionary<string, int> snapshotsBySource)
     {
         return snapshotsBySource
             .OrderByDescending(pair => pair.Value)
@@ -1173,7 +1173,7 @@ public sealed class SweepEngine
             .Select(pair => $"{pair.Key} {pair.Value} 次"));
 
     /// <summary>Best guess at what held the clock below FMax, from step averages.</summary>
-    private static string DescribeLimiter(double power, double pptLimit, double tctl, double thermalLimit)
+    internal static string DescribeLimiter(double power, double pptLimit, double tctl, double thermalLimit)
     {
         List<string> causes = new();
         if (pptLimit > 0 && power >= pptLimit * 0.95)

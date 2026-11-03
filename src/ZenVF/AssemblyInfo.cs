@@ -1,4 +1,9 @@
+using System.Runtime.CompilerServices;
 using System.Windows;
+
+// Unit tests exercise internal helpers (model parsing, voltage-source choice,
+// thermal guard) without hardware.
+[assembly: InternalsVisibleTo("ZenVF.Tests")]
 
 [assembly:ThemeInfo(
     ResourceDictionaryLocation.None,            //where theme specific resource dictionaries are located

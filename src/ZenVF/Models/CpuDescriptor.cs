@@ -206,7 +206,7 @@ public sealed class CpuDescriptor
         };
     }
 
-    private static (bool Zen4, bool Zen5, bool Apu, string Codename) MapArchitecture(byte family, byte model)
+    internal static (bool Zen4, bool Zen5, bool Apu, string Codename) MapArchitecture(byte family, byte model)
     {
         return (family, model) switch
         {
