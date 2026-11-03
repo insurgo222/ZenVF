@@ -13,7 +13,6 @@ public sealed class SweepSettings
     public int WarmupSeconds { get; set; } = 5;
     public int SampleSeconds { get; set; } = 5;
     public HashSet<int> SelectedCcds { get; set; } = new();
-    public bool RestoreAfterTest { get; set; } = true;
 
     public int StepCount => BuildFrequencies().Count;
 

@@ -1378,7 +1378,7 @@ public static class ChartBuilder
         {
             true => "成功",
             false => "失败",
-            null => run.Settings.RestoreAfterTest ? "未记录" : "保留当前设置"
+            null => "未记录"
         };
     }
 

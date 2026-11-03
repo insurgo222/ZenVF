@@ -81,8 +81,7 @@ public static class DemoData
             StepMHz = 100,
             WarmupSeconds = 5,
             SampleSeconds = 5,
-            SelectedCcds = new HashSet<int> { 0, 1 },
-            RestoreAfterTest = true
+            SelectedCcds = new HashSet<int> { 0, 1 }
         };
     }
 

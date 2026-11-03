@@ -1096,8 +1096,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             StepMHz = step,
             WarmupSeconds = warmup,
             SampleSeconds = sample,
-            SelectedCcds = CcdOptions.Where(c => c.IsSelected).Select(c => c.Index).ToHashSet(),
-            RestoreAfterTest = true
+            SelectedCcds = CcdOptions.Where(c => c.IsSelected).Select(c => c.Index).ToHashSet()
         };
     }
 
@@ -1196,7 +1195,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             RefreshHasResult();
             RebuildCharts(result, false);
             UpdateChartSubtitle(result);
-            outcome = result.Settings.RestoreAfterTest ? RunOutcome.Completed : RunOutcome.CompletedKeepFinal;
+            outcome = RunOutcome.Completed;
             completedStage = $"完成 · {result.CoreVoltages.Count} 个频率档位";
             StatusText = "已完成 · 正在确认原始频率";
             StageText = completedStage;
@@ -1317,7 +1316,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             RefreshHasResult();
             RebuildSingleCoreChart(false);
             UpdateChartSubtitle(_currentRun);
-            outcome = result.Settings.RestoreAfterTest ? RunOutcome.Completed : RunOutcome.CompletedKeepFinal;
+            outcome = RunOutcome.Completed;
             completedStage = $"完成 · {result.CoreVoltages.Count} 个频率档位 · {result.CoreVoltages.Sum(f => f.Cores.Count)} 个核心样本";
             StatusText = "单核完成 · 正在确认原始频率";
             StageText = completedStage;
@@ -1360,14 +1359,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private enum RunOutcome
     {
         Completed,
-        CompletedKeepFinal,
         Stopped,
         Failed
     }
 
     /// <summary>
-    /// Common end of a hardware run. Every outcome except an intentional
-    /// keep-final goes through EnsureRestoredAfterRunAsync, which retries a
+    /// Common end of a hardware run. Every outcome goes through
+    /// EnsureRestoredAfterRunAsync, which retries a
     /// pending restore and is a no-op when nothing is pending. The outcome
     /// comes from the run itself, not from parsing the status text (the old
     /// prefix checks skipped the retry when a completed all-core run had
@@ -1379,13 +1377,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         string failedLabel,
         string completedStage)
     {
-        if (outcome == RunOutcome.CompletedKeepFinal)
-        {
-            StatusText = $"{completedLabel} · 保留最终频率";
-            StageText = completedStage;
-            return;
-        }
-
         bool restored = await EnsureRestoredAfterRunAsync();
         string label = outcome switch
         {

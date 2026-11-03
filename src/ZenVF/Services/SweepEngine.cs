@@ -91,7 +91,6 @@ public sealed class SweepEngine
 
         List<int> frequencies = settings.BuildFrequencies().ToList();
         using LoadGenerator load = new();
-        bool keepFinal = !settings.RestoreAfterTest;
         bool perCoreVoltageWarningShown = false;
         bool voltageSourceLogged = false;
         string? previousVoltageSource = null;
@@ -480,14 +479,13 @@ public sealed class SweepEngine
             }
 
             result.Finished = DateTime.Now;
-            result.Note = keepFinal ? $"{prefix}测试结束，保留最终 FMax。" : null;
             log(new LogEntry { Level = LogLevel.Success, Message = $"{prefix}测试完成，用时 {(DateTime.Now - started).TotalSeconds:0} 秒。" });
             return result;
         }
         finally
         {
             load.Stop();
-            result.RestoreSucceeded = keepFinal ? null : RestoreAfterRun(smu, cpu, log);
+            result.RestoreSucceeded = RestoreAfterRun(smu, cpu, log);
         }
     }
 
@@ -590,7 +588,6 @@ public sealed class SweepEngine
         };
 
         using LoadGenerator load = new();
-        bool keepFinal = !settings.RestoreAfterTest;
         bool? useVddcrVdd = null;
         int missingVddcrSamples = 0;
 
@@ -1040,7 +1037,6 @@ public sealed class SweepEngine
             }
 
             result.Finished = DateTime.Now;
-            result.Note = keepFinal ? "测试结束，保留最终 FMax。" : null;
             log(new LogEntry
             {
                 Level = LogLevel.Success,
@@ -1051,7 +1047,7 @@ public sealed class SweepEngine
         finally
         {
             load.Stop();
-            result.RestoreSucceeded = keepFinal ? null : RestoreAfterRun(smu, cpu, log);
+            result.RestoreSucceeded = RestoreAfterRun(smu, cpu, log);
         }
     }
 
