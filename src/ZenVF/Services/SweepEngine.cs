@@ -73,21 +73,9 @@ public sealed class SweepEngine
         const string label = "全核";
         string prefix = label + " ";
         ThermalGuard thermal = new(cpu.AbortTemperatureC, "全核测试");
-        List<SweepSeries> series = settings.SelectedCcds
-            .OrderBy(i => i)
-            .Select(i => new SweepSeries { CcdIndex = i, Label = $"CCD{i} | MAX CORE" })
-            .ToList();
+        List<SweepSeries> series = SweepRunResult.MaxCoreSeries(settings);
 
-        SweepRunResult result = new()
-        {
-            CpuName = cpu.Name,
-            StockFMax = cpu.StockFMaxMHz,
-            StockFMaxCeiling = cpu.StockFMaxCeilingMHz,
-            FMaxCeilingOffsetMHz = cpu.FMaxCeilingOffsetMHz,
-            Settings = settings,
-            Series = series,
-            Started = started
-        };
+        SweepRunResult result = SweepRunResult.Create(cpu, settings, series, started);
 
         List<int> frequencies = settings.BuildFrequencies().ToList();
         using LoadGenerator load = new();
@@ -102,10 +90,8 @@ public sealed class SweepEngine
                 throw new InvalidOperationException("没有可测试的频率档位。");
             }
 
-            log(new LogEntry { Level = LogLevel.Info, Message = $"{prefix}温度保护：Tctl 连续 {ThermalGuard.RequiredConsecutive} 次 ≥ {cpu.AbortTemperatureC:0} °C 时中止（含预热阶段）；Tjmax {cpu.TjMaxC:0} °C 时 CPU 会自行降频。" });
-            string ceilingNote = cpu.FMaxCeilingOffsetMHz > 0
-                ? $"，SMU 上限自动加 {cpu.FMaxCeilingOffsetMHz} MHz"
-                : string.Empty;
+            LogThermalPlan(log, cpu, prefix);
+            string ceilingNote = CeilingNote(cpu);
             log(new LogEntry { Level = LogLevel.Info, Message = $"{prefix}扫描计划：{frequencies.Count} 个实际最高加速点（{frequencies[0]} → {frequencies[^1]} MHz{ceilingNote}），{settings.WarmupSeconds}s 预热 / {settings.SampleSeconds}s 采样。" });
             log(new LogEntry { Level = LogLevel.Info, Message = $"{prefix}负载模式：128-bit SSE2（Prime95 SSE 风格，不启用 AVX/AVX2）。" });
             foreach (string warning in load.Start(topology, settings.SelectedCcds))
@@ -138,47 +124,18 @@ public sealed class SweepEngine
                     Elapsed = stopwatch.Elapsed
                 });
 
-                SmuWriteResult write = smu.SetFMaxCeiling(requestedCeiling);
-                if (!write.Success)
-                {
-                    throw new InvalidOperationException(write.Message);
-                }
+                (uint effectiveCeiling, int effectiveActual) = ApplyFMaxStep(smu, cpu, requestedActual, requestedCeiling, log);
 
-                bool readBackSucceeded = write.ReadBackFMax > 0;
-                uint effectiveCeiling = readBackSucceeded ? write.ReadBackFMax : requestedCeiling;
-                int effectiveActual = cpu.ToActualFMax(effectiveCeiling);
-                if (!readBackSucceeded)
-                {
-                    log(new LogEntry
-                    {
-                        Level = LogLevel.Warning,
-                        Message = $"FMax 写入成功但回读失败；本档按请求值继续：实际最高 {requestedActual} MHz（SMU 上限 {requestedCeiling} MHz）。"
-                    });
-                }
-                else if (Math.Abs(effectiveActual - requestedActual) > FMaxReadbackToleranceMHz)
-                {
-                    log(new LogEntry
-                    {
-                        Level = LogLevel.Warning,
-                        Message = $"FMax 回读偏差：请求实际最高 {requestedActual} MHz（SMU 上限 {requestedCeiling} MHz），回读实际最高 {effectiveActual} MHz（SMU 上限 {effectiveCeiling} MHz）。"
-                    });
-                }
-                else
-                {
-                    log(new LogEntry
-                    {
-                        Level = LogLevel.Info,
-                        Message = $"FMax 回读：实际最高 {effectiveActual} MHz（SMU 上限 {effectiveCeiling} MHz）。"
-                    });
-                }
 
+                int warmStep = step;
                 await WarmupAsync(
                         settings.WarmupSeconds,
+                        $"预热 · {label}",
+                        w => (warmStep + 0.05 + (0.1 * w)) / frequencies.Count,
                         step,
                         frequencies.Count,
                         requestedActual,
                         (int)requestedCeiling,
-                        label,
                         sensors,
                         thermal,
                         stopwatch,
@@ -576,16 +533,7 @@ public sealed class SweepEngine
         ThermalGuard thermal = new(cpu.AbortTemperatureC, "单核测试");
         List<int> frequencies = settings.BuildFrequencies().ToList();
         List<PhysicalCoreRef> cores = topology.GetPhysicalCores(settings.SelectedCcds).ToList();
-        SweepRunResult result = new()
-        {
-            CpuName = cpu.Name,
-            StockFMax = cpu.StockFMaxMHz,
-            StockFMaxCeiling = cpu.StockFMaxCeilingMHz,
-            FMaxCeilingOffsetMHz = cpu.FMaxCeilingOffsetMHz,
-            Settings = settings,
-            Series = new List<SweepSeries>(),
-            Started = started
-        };
+        SweepRunResult result = SweepRunResult.Create(cpu, settings, new List<SweepSeries>(), started);
 
         using LoadGenerator load = new();
         bool? useVddcrVdd = null;
@@ -603,11 +551,9 @@ public sealed class SweepEngine
                 throw new InvalidOperationException("所选 CCD 没有可测试的物理核心。");
             }
 
-            log(new LogEntry { Level = LogLevel.Info, Message = $"温度保护：Tctl 连续 {ThermalGuard.RequiredConsecutive} 次 ≥ {cpu.AbortTemperatureC:0} °C 时中止（含预热阶段）；Tjmax {cpu.TjMaxC:0} °C 时 CPU 会自行降频。" });
+            LogThermalPlan(log, cpu, string.Empty);
             int estimatedSeconds = settings.ApproximateSingleCoreDurationSeconds(cores.Count);
-            string ceilingNote = cpu.FMaxCeilingOffsetMHz > 0
-                ? $"，SMU 上限自动加 {cpu.FMaxCeilingOffsetMHz} MHz"
-                : string.Empty;
+            string ceilingNote = CeilingNote(cpu);
             log(new LogEntry
             {
                 Level = LogLevel.Info,
@@ -643,39 +589,8 @@ public sealed class SweepEngine
                     Message = $"单核档位 {step + 1}/{frequencies.Count}：实际最高 {requestedActual} MHz（SMU 上限 {requestedCeiling} MHz），开始逐核测试。"
                 });
 
-                SmuWriteResult write = smu.SetFMaxCeiling(requestedCeiling);
-                if (!write.Success)
-                {
-                    throw new InvalidOperationException(write.Message);
-                }
+                (uint effectiveCeiling, int effectiveActual) = ApplyFMaxStep(smu, cpu, requestedActual, requestedCeiling, log);
 
-                bool readBackSucceeded = write.ReadBackFMax > 0;
-                uint effectiveCeiling = readBackSucceeded ? write.ReadBackFMax : requestedCeiling;
-                int effectiveActual = cpu.ToActualFMax(effectiveCeiling);
-                if (!readBackSucceeded)
-                {
-                    log(new LogEntry
-                    {
-                        Level = LogLevel.Warning,
-                        Message = $"FMax 写入成功但回读失败；按请求值继续：实际最高 {requestedActual} MHz（SMU 上限 {requestedCeiling} MHz）。"
-                    });
-                }
-                else if (Math.Abs(effectiveActual - requestedActual) > FMaxReadbackToleranceMHz)
-                {
-                    log(new LogEntry
-                    {
-                        Level = LogLevel.Warning,
-                        Message = $"FMax 回读偏差：请求实际最高 {requestedActual} MHz（SMU 上限 {requestedCeiling} MHz），回读实际最高 {effectiveActual} MHz（SMU 上限 {effectiveCeiling} MHz）。"
-                    });
-                }
-                else
-                {
-                    log(new LogEntry
-                    {
-                        Level = LogLevel.Info,
-                        Message = $"FMax 回读：实际最高 {effectiveActual} MHz（SMU 上限 {effectiveCeiling} MHz）。"
-                    });
-                }
 
                 List<CoreVoltageSample> stepCores = new();
                 Dictionary<string, int> stepSources = new();
@@ -748,13 +663,14 @@ public sealed class SweepEngine
                             Message = $"{coreName} 单核 SSE2 负载已启动（{load.ActiveThreads} 个线程，实际运行于 {observedText}）；开始预热。"
                         });
 
-                        await WarmupSingleCoreSweepAsync(
+                        int warmStep = step;
+                        int warmCore = coreIndex;
+                        await WarmupAsync(
                                 settings.WarmupSeconds,
+                                $"预热 · 单核 · CCD{core.CcdIndex} Core #{core.DisplayCoreId}",
+                                w => (warmStep + ((warmCore + 0.05 + (0.10 * w)) / cores.Count)) / frequencies.Count,
                                 step,
                                 frequencies.Count,
-                                coreIndex,
-                                cores.Count,
-                                core,
                                 requestedActual,
                                 (int)requestedCeiling,
                                 sensors,
@@ -1063,47 +979,6 @@ public sealed class SweepEngine
         return remainder == 0 ? $"{minutes} 分" : $"{minutes} 分 {remainder} 秒";
     }
 
-    private static async Task WarmupSingleCoreSweepAsync(
-        int seconds,
-        int frequencyStep,
-        int frequencyCount,
-        int coreIndex,
-        int coreCount,
-        PhysicalCoreRef core,
-        int frequencyActual,
-        int frequencyCeiling,
-        ISensorService sensors,
-        ThermalGuard thermal,
-        Stopwatch stopwatch,
-        Action<SweepProgress> progress,
-        CancellationToken cancellationToken)
-    {
-        if (seconds <= 0)
-        {
-            return;
-        }
-
-        DateTime start = DateTime.Now;
-        while ((DateTime.Now - start).TotalSeconds < seconds)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            thermal.Check(sensors.Sample().Tctl);
-            double elapsed = (DateTime.Now - start).TotalSeconds;
-            progress(new SweepProgress
-            {
-                StepIndex = frequencyStep + 1,
-                StepCount = frequencyCount,
-                Frequency = frequencyActual,
-                FrequencyCeiling = frequencyCeiling,
-                Stage = $"预热 · 单核 · CCD{core.CcdIndex} Core #{core.DisplayCoreId}",
-                Fraction = (frequencyStep + ((coreIndex + 0.05 + (0.10 * Math.Clamp(elapsed / seconds, 0, 1))) / coreCount))
-                    / frequencyCount,
-                Elapsed = stopwatch.Elapsed
-            });
-            await Task.Delay(250, cancellationToken).ConfigureAwait(false);
-        }
-    }
-
     private static SensorCoreSample? FindTargetCore(SensorSnapshot snapshot, PhysicalCoreRef core)
     {
         return snapshot.Cores.FirstOrDefault(c =>
@@ -1111,13 +986,18 @@ public sealed class SweepEngine
                ?? snapshot.Cores.FirstOrDefault(c => c.DisplayCoreId == core.DisplayCoreId);
     }
 
+    /// <summary>
+    /// Warmup shared by both sweeps: keeps the thermal guard running and maps
+    /// warmup progress (0..1) onto the run's overall progress.
+    /// </summary>
     private static async Task WarmupAsync(
         int seconds,
+        string stage,
+        Func<double, double> overallFraction,
         int step,
         int stepCount,
         int frequencyActual,
         int frequencyCeiling,
-        string stageLabel,
         ISensorService sensors,
         ThermalGuard thermal,
         Stopwatch stopwatch,
@@ -1129,25 +1009,83 @@ public sealed class SweepEngine
             return;
         }
 
-        DateTime start = DateTime.Now;
-        while ((DateTime.Now - start).TotalSeconds < seconds)
+        Stopwatch warm = Stopwatch.StartNew();
+        while (warm.Elapsed.TotalSeconds < seconds)
         {
             cancellationToken.ThrowIfCancellationRequested();
             thermal.Check(sensors.Sample().Tctl);
-            double elapsed = (DateTime.Now - start).TotalSeconds;
             progress(new SweepProgress
             {
                 StepIndex = step + 1,
                 StepCount = stepCount,
                 Frequency = frequencyActual,
                 FrequencyCeiling = frequencyCeiling,
-                Stage = $"预热 · {stageLabel}",
-                Fraction = ((step + (0.05 + (0.1 * Math.Clamp(elapsed / seconds, 0, 1)))) / stepCount),
+                Stage = stage,
+                Fraction = overallFraction(Math.Clamp(warm.Elapsed.TotalSeconds / seconds, 0, 1)),
                 Elapsed = stopwatch.Elapsed
             });
             await Task.Delay(250, cancellationToken).ConfigureAwait(false);
         }
     }
+
+    /// <summary>
+    /// Writes one FMax step and logs the read-back. Throws when the write
+    /// fails; when only the read-back fails the step continues with the
+    /// requested value.
+    /// </summary>
+    private static (uint EffectiveCeiling, int EffectiveActual) ApplyFMaxStep(
+        SmuController smu,
+        CpuDescriptor cpu,
+        int requestedActual,
+        uint requestedCeiling,
+        Action<LogEntry> log)
+    {
+        SmuWriteResult write = smu.SetFMaxCeiling(requestedCeiling);
+        if (!write.Success)
+        {
+            throw new InvalidOperationException(write.Message);
+        }
+
+        bool readBackSucceeded = write.ReadBackFMax > 0;
+        uint effectiveCeiling = readBackSucceeded ? write.ReadBackFMax : requestedCeiling;
+        int effectiveActual = cpu.ToActualFMax(effectiveCeiling);
+        if (!readBackSucceeded)
+        {
+            log(new LogEntry
+            {
+                Level = LogLevel.Warning,
+                Message = $"FMax 写入成功但回读失败；本档按请求值继续：实际最高 {requestedActual} MHz（SMU 上限 {requestedCeiling} MHz）。"
+            });
+        }
+        else if (Math.Abs(effectiveActual - requestedActual) > FMaxReadbackToleranceMHz)
+        {
+            log(new LogEntry
+            {
+                Level = LogLevel.Warning,
+                Message = $"FMax 回读偏差：请求实际最高 {requestedActual} MHz（SMU 上限 {requestedCeiling} MHz），回读实际最高 {effectiveActual} MHz（SMU 上限 {effectiveCeiling} MHz）。"
+            });
+        }
+        else
+        {
+            log(new LogEntry
+            {
+                Level = LogLevel.Info,
+                Message = $"FMax 回读：实际最高 {effectiveActual} MHz（SMU 上限 {effectiveCeiling} MHz）。"
+            });
+        }
+
+        return (effectiveCeiling, effectiveActual);
+    }
+
+    private static void LogThermalPlan(Action<LogEntry> log, CpuDescriptor cpu, string prefix) =>
+        log(new LogEntry
+        {
+            Level = LogLevel.Info,
+            Message = $"{prefix}温度保护：Tctl 连续 {ThermalGuard.RequiredConsecutive} 次 ≥ {cpu.AbortTemperatureC:0} °C 时中止（含预热阶段）；Tjmax {cpu.TjMaxC:0} °C 时 CPU 会自行降频。"
+        });
+
+    private static string CeilingNote(CpuDescriptor cpu) =>
+        cpu.FMaxCeilingOffsetMHz > 0 ? $"，SMU 上限自动加 {cpu.FMaxCeilingOffsetMHz} MHz" : string.Empty;
 
     /// <summary>
     /// Picks the voltage source that supplied the most snapshots in a step.

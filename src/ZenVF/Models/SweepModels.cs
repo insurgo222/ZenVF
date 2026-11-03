@@ -224,6 +224,29 @@ public sealed class SweepRunResult
     public int? EclkSampleCount { get; set; }
 
     public bool IsEclkDetected => EclkRatio is > 1.0;
+
+    /// <summary>Empty result for a run on <paramref name="cpu"/> with <paramref name="settings"/>.</summary>
+    public static SweepRunResult Create(
+        CpuDescriptor cpu,
+        SweepSettings settings,
+        List<SweepSeries> series,
+        DateTime started) => new()
+    {
+        CpuName = cpu.Name,
+        StockFMax = cpu.StockFMaxMHz,
+        StockFMaxCeiling = cpu.StockFMaxCeilingMHz,
+        FMaxCeilingOffsetMHz = cpu.FMaxCeilingOffsetMHz,
+        Settings = settings,
+        Series = series,
+        Started = started
+    };
+
+    /// <summary>One "CCDn | MAX CORE" series per selected CCD, for an all-core run.</summary>
+    public static List<SweepSeries> MaxCoreSeries(SweepSettings settings) =>
+        settings.SelectedCcds
+            .OrderBy(i => i)
+            .Select(i => new SweepSeries { CcdIndex = i, Label = $"CCD{i} | MAX CORE" })
+            .ToList();
     public double EclkBclkMHz => Math.Round((EclkRatio ?? 1.0) * 100.0, 3);
 
     /// <summary>

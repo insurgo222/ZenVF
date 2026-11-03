@@ -1126,23 +1126,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        if (_smu is null || _topology is null || _cpu is null || _sensors is null)
+        if (!TryPrepareHardwareRun("无法读取当前 FMax，已取消全核测试。"))
         {
-            Log(LogLevel.Error, "硬件未就绪。");
             return;
-        }
-
-        if (!_smu.TryGetFMaxCeiling(out uint currentCeiling))
-        {
-            Log(LogLevel.Error, "无法读取当前 FMax，已取消。");
-            return;
-        }
-
-        if (_originalFMaxCeiling == 0)
-        {
-            _originalFMaxCeiling = currentCeiling;
-            OriginalFMaxText = $"{ActualFromCeiling(currentCeiling)} MHz";
-            OnPropertyChanged(nameof(PboToggleHint));
         }
 
         _runPlannedSeconds = settings!.ApproximateDurationSeconds;
@@ -1151,18 +1137,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ProgressTimeText = $"预计剩余 {FormatClock(TimeSpan.FromSeconds(_runPlannedSeconds))} · 已用 00:00";
         HasResult = _singleCoreRun?.CoreVoltages.Count > 0;
         _cts = new CancellationTokenSource();
-        _currentRun = new SweepRunResult
-        {
-            CpuName = _cpu.Name,
-            StockFMax = _cpu.StockFMaxMHz,
-            StockFMaxCeiling = _cpu.StockFMaxCeilingMHz,
-            FMaxCeilingOffsetMHz = _cpu.FMaxCeilingOffsetMHz,
-            Settings = settings!,
-            Series = settings!.SelectedCcds.OrderBy(i => i)
-                .Select(i => new SweepSeries { CcdIndex = i, Label = $"CCD{i} | MAX CORE" })
-                .ToList(),
-            Started = DateTime.Now
-        };
+        _currentRun = SweepRunResult.Create(_cpu, settings!, SweepRunResult.MaxCoreSeries(settings!), DateTime.Now);
         ApplyEclk(null);
         RebuildCharts(_currentRun, false);
         ChartSubtitle = "全核测试中…";
@@ -1221,15 +1196,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
         finally
         {
-            IsRunning = false;
-            // The subtitle is set to "…测试中…" at start and is otherwise only
-            // replaced when a step completes; a stop/failure before the first
-            // step left it stuck.
-            UpdateChartSubtitle(_currentRun);
-            _cts?.Dispose();
-            _cts = null;
-            _runTask = null;
-            await RefreshSmuStateAsync();
             await FinishRunAsync(outcome, "已完成", "全核测试失败", completedStage);
         }
     }
@@ -1247,23 +1213,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        if (_smu is null || _topology is null || _cpu is null || _sensors is null)
+        if (!TryPrepareHardwareRun("无法读取当前最高频率，已取消单核测试。"))
         {
-            Log(LogLevel.Error, "硬件未就绪。");
             return;
-        }
-
-        if (!_smu.TryGetFMaxCeiling(out uint currentCeiling))
-        {
-            Log(LogLevel.Error, "无法读取当前最高频率，已取消单核测试。");
-            return;
-        }
-
-        if (_originalFMaxCeiling == 0)
-        {
-            _originalFMaxCeiling = currentCeiling;
-            OriginalFMaxText = $"{ActualFromCeiling(currentCeiling)} MHz";
-            OnPropertyChanged(nameof(PboToggleHint));
         }
 
         IsRunning = true;
@@ -1271,16 +1223,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ProgressTimeText = "预计剩余 --:--";
         HasResult = _currentRun?.CoreVoltages.Count > 0;
         _cts = new CancellationTokenSource();
-        _singleCoreRun = new SweepRunResult
-        {
-            CpuName = _cpu.Name,
-            StockFMax = _cpu.StockFMaxMHz,
-            StockFMaxCeiling = _cpu.StockFMaxCeilingMHz,
-            FMaxCeilingOffsetMHz = _cpu.FMaxCeilingOffsetMHz,
-            Settings = settings!,
-            Series = new List<SweepSeries>(),
-            Started = DateTime.Now
-        };
+        _singleCoreRun = SweepRunResult.Create(_cpu, settings!, new List<SweepSeries>(), DateTime.Now);
         ApplyEclk(null);
         RebuildSingleCoreChart(false);
         ChartSubtitle = "单核测试中…";
@@ -1342,17 +1285,37 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
         finally
         {
-            IsRunning = false;
-            // The subtitle is set to "…测试中…" at start and is otherwise only
-            // replaced when a step completes; a stop/failure before the first
-            // step left it stuck.
-            UpdateChartSubtitle(_currentRun);
-            _cts?.Dispose();
-            _cts = null;
-            _runTask = null;
-            await RefreshSmuStateAsync();
             await FinishRunAsync(outcome, "单核完成", "单核测试失败", completedStage);
         }
+    }
+
+    /// <summary>
+    /// Checks shared by both hardware runs: hardware is ready and the current
+    /// FMax can be read; records it as the original if none is known yet.
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.MemberNotNullWhen(true, nameof(_smu), nameof(_topology), nameof(_cpu), nameof(_sensors))]
+    private bool TryPrepareHardwareRun(string readFailedMessage)
+    {
+        if (_smu is null || _topology is null || _cpu is null || _sensors is null)
+        {
+            Log(LogLevel.Error, "硬件未就绪。");
+            return false;
+        }
+
+        if (!_smu.TryGetFMaxCeiling(out uint currentCeiling))
+        {
+            Log(LogLevel.Error, readFailedMessage);
+            return false;
+        }
+
+        if (_originalFMaxCeiling == 0)
+        {
+            _originalFMaxCeiling = currentCeiling;
+            OriginalFMaxText = $"{ActualFromCeiling(currentCeiling)} MHz";
+            OnPropertyChanged(nameof(PboToggleHint));
+        }
+
+        return true;
     }
 
     /// <summary>How a hardware run ended; decides the restore check and the final status.</summary>
@@ -1377,6 +1340,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         string failedLabel,
         string completedStage)
     {
+        IsRunning = false;
+        // The subtitle is set to "…测试中…" at start and is otherwise only
+        // replaced when a step completes; a stop/failure before the first
+        // step left it stuck.
+        UpdateChartSubtitle(_currentRun);
+        _cts?.Dispose();
+        _cts = null;
+        _runTask = null;
+        await RefreshSmuStateAsync();
+
         bool restored = await EnsureRestoredAfterRunAsync();
         string label = outcome switch
         {
