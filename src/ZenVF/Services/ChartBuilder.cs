@@ -1109,7 +1109,7 @@ public static class ChartBuilder
         builder.AppendLine("- 档位为界面中的实际最高加速频率；SMU 上限为写入/回读的原始 FMax 上限。");
         builder.AppendLine("- 检测到 eCLK 时，档位旁的“eCLK 实际”按 `设定频率 × eCLK 倍率` 计算；图表横轴仍使用实测有效频率。");
         builder.AppendLine("- 实测频率来自 LibreHardwareMonitor 的有效频率中位数，不是 FMax 设定值。");
-        builder.AppendLine("- 电压取每档采样期间的**最大值**（不含预热）：全核测试为各核心的 SMU PM table 电压（= HWiNFO `Core N VID`），每核单独测试为 `CPU VDDCR_VDD` 封装遥测（= HWiNFO `CPU VDDCR_VDD Voltage (SVI3 TFN)`），同一档位内各核心共享该电压。频率与温度取中位数。");
+        builder.AppendLine("- 电压取每档采样期间的**平均值**（不含预热，可与 HWiNFO 的“平均值”列对比）：全核测试为各核心的 SMU PM table 电压（= HWiNFO `Core N VID`），每核单独测试为 `CPU VDDCR_VDD` 封装遥测（= HWiNFO `CPU VDDCR_VDD Voltage (SVI3 TFN)`），同一档位内各核心共享该电压。频率与温度取中位数。");
         builder.AppendLine("- 完整逐点数据请使用“导出 CSV”。");
         builder.AppendLine();
 

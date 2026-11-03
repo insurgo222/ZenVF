@@ -349,10 +349,14 @@ public sealed class SweepEngine
                     }
 
                     double clock = Median(clockValues);
-                    // Peak voltage over the sampling window (user choice): the
-                    // highest VID the core actually requested at this step.
-                    // Clock and temperature stay medians.
-                    double voltage = voltageValues.Max();
+                    // Mean voltage over the sampling window, comparable with
+                    // HWiNFO's "Average" column. The peak was tried and
+                    // dropped: PM table values average over the time since the
+                    // previous table refresh, so the peak depends on who
+                    // refreshes and when (another monitor such as HWiNFO
+                    // shortens the windows), not only on the CPU. Measured on
+                    // a 9800X3D, 2026-11-03. Clock and temperature stay medians.
+                    double voltage = voltageValues.Average();
                     double temperature = Median(list.Where(s => s.Temperature > 0).Select(s => s.Temperature));
                     if (!SensorValueSanity.IsPlausibleClock(clock)
                         || !SensorValueSanity.IsPlausibleVoltage(voltage))
@@ -898,8 +902,8 @@ public sealed class SweepEngine
                         else
                         {
                             double clock = Median(clockValues);
-                            // Peak VDDCR_VDD over the window, matching the all-core path.
-                            double voltage = voltageValues.Max();
+                            // Mean VDDCR_VDD over the window, matching the all-core path.
+                            double voltage = voltageValues.Average();
                             double temperature = Median(temperatureValues);
                             if (!SensorValueSanity.IsPlausibleClock(clock)
                                 || !SensorValueSanity.IsPlausibleVoltage(voltage))
