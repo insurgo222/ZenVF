@@ -41,11 +41,7 @@ public sealed class AppOptions
                     skipElevation = true;
                     break;
                 case "--screenshot":
-                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
-                    {
-                        screenshot = args[++i];
-                        demo = true;
-                    }
+                    screenshot = TakePath(args, ref i) ?? screenshot;
                     break;
                 case "--screenshot-tab":
                     if (i + 1 < args.Length && int.TryParse(args[i + 1], out int tabIndex) && tabIndex >= 0)
@@ -54,13 +50,17 @@ public sealed class AppOptions
                         i++;
                     }
                     break;
+                // Both accept the output path directly (README usage); the path may
+                // also come from a separate --screenshot <path>.
                 case "--screenshot-core":
                     screenshotCore = true;
                     demo = true;
+                    screenshot = TakePath(args, ref i) ?? screenshot;
                     break;
                 case "--screenshot-theme":
                     screenshotTheme = true;
                     demo = true;
+                    screenshot = TakePath(args, ref i) ?? screenshot;
                     break;
                 case "--theme":
                     if (i + 1 < args.Length)
@@ -89,5 +89,16 @@ public sealed class AppOptions
             ScreenshotCore = screenshotCore,
             ScreenshotTheme = screenshotTheme
         };
+    }
+
+    // Consumes args[i + 1] as a path when it is present and not another flag.
+    private static string? TakePath(string[] args, ref int i)
+    {
+        if (i + 1 < args.Length && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
+        {
+            return args[++i];
+        }
+
+        return null;
     }
 }

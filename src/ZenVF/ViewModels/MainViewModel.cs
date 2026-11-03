@@ -125,9 +125,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         AdminText = IsElevated ? "管理员" : "标准用户";
     }
 
-    /// <summary>Product version from the assembly (set once, in ZenVF.csproj).</summary>
-    public static string AppVersion { get; } =
-        typeof(MainViewModel).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
+    public static string AppVersion => AppInfo.Version;
 
     public string VersionText => "v" + AppVersion;
 

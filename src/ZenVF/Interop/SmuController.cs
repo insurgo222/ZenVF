@@ -149,7 +149,7 @@ public sealed class SmuController : IDisposable
                 if (_commands is null)
                 {
                     InitializationError = _lastRsmuHr == PciLockTimeoutHResult
-                        ? $"PCI 总线锁一直被其他硬件监控程序占用（例如 HWiNFO 正在启动或退出、MSI Center 等），重试 {InitAttempts} 次仍未拿到。请稍候或关闭这些程序后重启 ZenVF。"
+                        ? $"PCI 总线锁一直被其他硬件监控程序占用（例如 HWiNFO 正在启动或退出、MSI Center 等），共尝试 {InitAttempts} 次仍未拿到。请稍候或关闭这些程序，再点 SMU 状态行右侧的“重新连接”，无需重启 ZenVF。"
                         : _lastRsmuHr != 0
                             ? $"RSMU（{candidate.Name}）读取 FMax 的命令失败（HRESULT 0x{_lastRsmuHr:X8}）。"
                             : $"RSMU（{candidate.Name}）返回的 FMax 无效（{lastValue}）。BIOS 可能锁定了 PBO，或该平台的命令不兼容。";
