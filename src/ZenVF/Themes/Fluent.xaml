@@ -5,9 +5,11 @@
     <Geometry x:Key="EclkWaveGeometry">M1,8 L3.5,8 L3.5,4 L7,4 L7,11 L10.5,11 L10.5,6 L13,6</Geometry>
 
     <!-- Typography: one UI family, mono for measurements, Bahnschrift for plate codes. -->
+    <!-- Type ramp: 10.5 micro (mono caps) / 11.5 secondary / 12 body & controls /
+         12.5 tabs / 14 section titles / 20 primary identity. -->
     <Style x:Key="SectionLabel" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="Cascadia Mono, Consolas" />
-        <Setter Property="FontSize" Value="9.5" />
+        <Setter Property="FontSize" Value="10.5" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
         <Setter Property="TextOptions.TextFormattingMode" Value="Display" />
@@ -15,7 +17,7 @@
 
     <Style x:Key="PlateCaption" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="Bahnschrift, Segoe UI Semibold, Microsoft YaHei UI" />
-        <Setter Property="FontSize" Value="9.5" />
+        <Setter Property="FontSize" Value="11" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
         <Setter Property="TextOptions.TextFormattingMode" Value="Display" />
@@ -23,7 +25,7 @@
 
     <Style x:Key="CardTitle" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI, Microsoft YaHei UI" />
-        <Setter Property="FontSize" Value="14.5" />
+        <Setter Property="FontSize" Value="14" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
     </Style>
@@ -51,13 +53,13 @@
 
     <Style x:Key="MutedText" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI, Microsoft YaHei UI" />
-        <Setter Property="FontSize" Value="11.5" />
+        <Setter Property="FontSize" Value="12" />
         <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
     </Style>
 
     <Style x:Key="SmallMuted" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI, Microsoft YaHei UI" />
-        <Setter Property="FontSize" Value="10.5" />
+        <Setter Property="FontSize" Value="11.5" />
         <Setter Property="Foreground" Value="{DynamicResource FaintBrush}" />
     </Style>
 
@@ -95,8 +97,8 @@
         <Setter Property="Background" Value="{DynamicResource ChipBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource ChipBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="CornerRadius" Value="1" />
-        <Setter Property="Padding" Value="6,2" />
+        <Setter Property="CornerRadius" Value="2" />
+        <Setter Property="Padding" Value="7,3" />
     </Style>
 
     <Style x:Key="Hairline" TargetType="Border">
@@ -112,7 +114,8 @@
     <Style x:Key="DotLeader" TargetType="Border">
         <Setter Property="Height" Value="1" />
         <Setter Property="VerticalAlignment" Value="Bottom" />
-        <Setter Property="Margin" Value="8,0,8,4" />
+        <!-- Sits on the text baseline of the 12px label / 13px value. -->
+        <Setter Property="Margin" Value="10,0,10,8" />
         <Setter Property="Background">
             <Setter.Value>
                 <DrawingBrush TileMode="Tile" Viewport="0,0,4,1" ViewportUnits="Absolute" Stretch="None">
@@ -224,9 +227,10 @@
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
         <Setter Property="BorderThickness" Value="0" />
-        <Setter Property="Padding" Value="9,6" />
+        <Setter Property="Height" Value="30" />
+        <Setter Property="Padding" Value="10,0" />
         <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI, Microsoft YaHei UI" />
-        <Setter Property="FontSize" Value="11.5" />
+        <Setter Property="FontSize" Value="12" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="Template">
             <Setter.Value>
@@ -354,11 +358,11 @@
     </Style>
 
     <Style x:Key="IconButton" TargetType="Button" BasedOn="{StaticResource GhostButton}">
-        <Setter Property="Width" Value="28" />
-        <Setter Property="Height" Value="28" />
+        <Setter Property="Width" Value="30" />
+        <Setter Property="Height" Value="30" />
         <Setter Property="Padding" Value="0" />
         <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
-        <Setter Property="FontSize" Value="10" />
+        <Setter Property="FontSize" Value="13" />
     </Style>
 
     <!-- Switch mirrors the view-model state. -->
@@ -618,7 +622,7 @@
     <Style x:Key="ChartTabItem" TargetType="TabItem">
         <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
         <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI, Microsoft YaHei UI" />
-        <Setter Property="FontSize" Value="11.5" />
+        <Setter Property="FontSize" Value="12.5" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="Template">
@@ -678,8 +682,25 @@
         <Setter Property="Margin" Value="0,2,0,0" />
     </Style>
 
-    <!-- Status pills -->
-    <Style x:Key="AdminPill" TargetType="Border" BasedOn="{StaticResource Pill}">
+    <!-- Status pills: title-bar pills share one height and center their
+         content. Without an explicit VerticalAlignment they stretched to the
+         32px caption buttons while the PBO pill stayed 20px. -->
+    <Style x:Key="StatusPill" TargetType="Border" BasedOn="{StaticResource Pill}">
+        <Setter Property="Height" Value="26" />
+        <Setter Property="MinWidth" Value="26" />
+        <Setter Property="Padding" Value="10,0" />
+        <Setter Property="CornerRadius" Value="2" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <Style x:Key="StatusPillText" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI, Microsoft YaHei UI" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <Style x:Key="AdminPill" TargetType="Border" BasedOn="{StaticResource StatusPill}">
         <Style.Triggers>
             <DataTrigger Binding="{Binding IsElevated}" Value="True">
                 <Setter Property="Background" Value="{DynamicResource AdminOnBrush}" />
@@ -688,7 +709,7 @@
         </Style.Triggers>
     </Style>
 
-    <Style x:Key="PboPill" TargetType="Border" BasedOn="{StaticResource Pill}">
+    <Style x:Key="PboPill" TargetType="Border" BasedOn="{StaticResource StatusPill}">
         <Style.Triggers>
             <DataTrigger Binding="{Binding PboState}" Value="on">
                 <Setter Property="Background" Value="{DynamicResource PboOnBrush}" />
@@ -706,7 +727,7 @@
         <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
     </Style>
 
-    <Style x:Key="DemoPill" TargetType="Border" BasedOn="{StaticResource Pill}">
+    <Style x:Key="DemoPill" TargetType="Border" BasedOn="{StaticResource StatusPill}">
         <Setter Property="Background" Value="{DynamicResource WarningSoftBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource PboOnBorderBrush}" />
     </Style>

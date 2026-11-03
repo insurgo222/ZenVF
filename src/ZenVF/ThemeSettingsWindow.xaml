@@ -4,9 +4,9 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Title="ZenVF · 外观与主题"
         Width="560"
-        Height="700"
+        Height="730"
         MinWidth="520"
-        MinHeight="640"
+        MinHeight="700"
         WindowStyle="None"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
@@ -98,8 +98,8 @@
                                         </StackPanel>
                                     </Grid>
                                 </Border>
-                                <TextBlock Text="跟随系统" FontSize="11.5" FontWeight="SemiBold" Margin="1,8,0,0" />
-                                <TextBlock Text="Windows 设置" FontSize="9.5" Foreground="{DynamicResource MutedBrush}"
+                                <TextBlock Text="跟随系统" FontSize="12.5" FontWeight="SemiBold" Margin="1,8,0,0" />
+                                <TextBlock Text="Windows 设置" FontSize="11" Foreground="{DynamicResource MutedBrush}"
                                            Margin="1,2,0,0" />
                             </StackPanel>
                         </RadioButton>
@@ -120,8 +120,8 @@
                                         <Border Height="3" Background="#9A4E12" Margin="0,5,0,0" />
                                     </StackPanel>
                                 </Border>
-                                <TextBlock Text="浅色" FontSize="11.5" FontWeight="SemiBold" Margin="1,8,0,0" />
-                                <TextBlock Text="陶瓷封装" FontSize="9.5" Foreground="{DynamicResource MutedBrush}"
+                                <TextBlock Text="浅色" FontSize="12.5" FontWeight="SemiBold" Margin="1,8,0,0" />
+                                <TextBlock Text="陶瓷封装" FontSize="11" Foreground="{DynamicResource MutedBrush}"
                                            Margin="1,2,0,0" />
                             </StackPanel>
                         </RadioButton>
@@ -142,8 +142,8 @@
                                         <Border Height="3" Background="#C87533" Margin="0,5,0,0" />
                                     </StackPanel>
                                 </Border>
-                                <TextBlock Text="深色" FontSize="11.5" FontWeight="SemiBold" Margin="1,8,0,0" />
-                                <TextBlock Text="硅片" FontSize="9.5" Foreground="{DynamicResource MutedBrush}"
+                                <TextBlock Text="深色" FontSize="12.5" FontWeight="SemiBold" Margin="1,8,0,0" />
+                                <TextBlock Text="硅片" FontSize="11" Foreground="{DynamicResource MutedBrush}"
                                            Margin="1,2,0,0" />
                             </StackPanel>
                         </RadioButton>
@@ -155,20 +155,23 @@
                     <Grid Margin="0,4,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="自定义" Style="{StaticResource SmallMuted}" VerticalAlignment="Center"
-                                   Margin="0,0,10,0" />
-                        <TextBox x:Name="AccentHexBox" Grid.Column="1" Width="120" HorizontalAlignment="Left"
+                                   Margin="0,0,12,0" />
+                        <TextBox x:Name="AccentHexBox" Grid.Column="1" Width="140" Height="34" Padding="10,0"
+                                 VerticalContentAlignment="Center" FontFamily="Cascadia Mono, Consolas"
                                  Text="#5BC0BE" MaxLength="9" ToolTip="输入 #RRGGBB"
                                  AutomationProperties.Name="自定义主题色"
                                  KeyDown="AccentHex_KeyDown" />
                         <Button Grid.Column="2" Content="应用" Style="{StaticResource SecondaryButton}"
-                                AutomationProperties.Name="应用自定义主题色"
-                                Click="ApplyAccent_Click" Padding="12,7" />
+                                AutomationProperties.Name="应用自定义主题色" Margin="8,0,0,0"
+                                Height="34" VerticalAlignment="Center"
+                                Click="ApplyAccent_Click" Padding="16,0" />
                     </Grid>
-                    <TextBlock x:Name="AccentStatusText" Text="" FontSize="9.5" Foreground="{DynamicResource RedBrush}"
+                    <TextBlock x:Name="AccentStatusText" Text="" FontSize="11" Foreground="{DynamicResource RedBrush}"
                                Margin="0,5,0,0" />
 
                     <Border Style="{StaticResource SectionRule}" Margin="0,18,0,12" />
@@ -185,29 +188,29 @@
                                 <TextBlock Text="电压—频率响应" FontSize="13" FontWeight="SemiBold"
                                            Foreground="{DynamicResource TextBrush}" />
                                 <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                                    <Border Width="36" Height="30" Background="{DynamicResource CoreBlockBrush}"
+                                    <Border Width="52" Height="34" Background="{DynamicResource CoreBlockBrush}"
                                             BorderBrush="{DynamicResource CoreBlockBorderBrush}" BorderThickness="1" Margin="0,0,4,0">
                                         <Grid>
                                             <Rectangle Height="3" VerticalAlignment="Bottom" Fill="{DynamicResource CopperBrush}" Opacity="0.45" />
-                                            <TextBlock Text="1.148" FontFamily="Cascadia Mono, Consolas" FontSize="9"
+                                            <TextBlock Text="1.148" FontFamily="Cascadia Mono, Consolas" FontSize="11"
                                                        HorizontalAlignment="Center" VerticalAlignment="Center"
                                                        Foreground="{DynamicResource TextBrush}" />
                                         </Grid>
                                     </Border>
-                                    <Border Width="36" Height="30" Background="{DynamicResource CoreBlockBrush}"
+                                    <Border Width="52" Height="34" Background="{DynamicResource CoreBlockBrush}"
                                             BorderBrush="{DynamicResource CopperBrush}" BorderThickness="1" Margin="0,0,4,0">
                                         <Grid>
                                             <Rectangle Height="3" VerticalAlignment="Bottom" Fill="{DynamicResource CopperBrush}" Opacity="0.85" />
-                                            <TextBlock Text="1.162" FontFamily="Cascadia Mono, Consolas" FontSize="9"
+                                            <TextBlock Text="1.162" FontFamily="Cascadia Mono, Consolas" FontSize="11"
                                                        HorizontalAlignment="Center" VerticalAlignment="Center"
                                                        Foreground="{DynamicResource TextBrush}" />
                                         </Grid>
                                     </Border>
-                                    <Border Width="36" Height="30" Background="{DynamicResource CoreBlockBrush}"
+                                    <Border Width="52" Height="34" Background="{DynamicResource CoreBlockBrush}"
                                             BorderBrush="{DynamicResource CoreBlockBorderBrush}" BorderThickness="1" Margin="0,0,4,0">
                                         <Grid>
                                             <Rectangle Height="3" VerticalAlignment="Bottom" Fill="{DynamicResource CopperBrush}" Opacity="0.3" />
-                                            <TextBlock Text="1.140" FontFamily="Cascadia Mono, Consolas" FontSize="9"
+                                            <TextBlock Text="1.140" FontFamily="Cascadia Mono, Consolas" FontSize="11"
                                                        HorizontalAlignment="Center" VerticalAlignment="Center"
                                                        Foreground="{DynamicResource TextBrush}" />
                                         </Grid>

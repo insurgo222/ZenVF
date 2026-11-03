@@ -59,7 +59,7 @@
                                           StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                                           StrokeLineJoin="Round" />
                                 </Viewbox>
-                                <TextBlock x:Name="EclkText" Text="eCLK" FontSize="9" Margin="5,0,0,0"
+                                <TextBlock x:Name="EclkText" Text="eCLK" FontSize="11" Margin="5,0,0,0"
                                            Foreground="{DynamicResource AccentBrush}" />
                             </StackPanel>
                         </Border>
@@ -86,7 +86,7 @@
                     <StackPanel>
                         <TextBlock x:Name="FrequencyText" Text="—" FontFamily="Cascadia Mono, Consolas"
                                    FontSize="26" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" />
-                        <TextBlock x:Name="FrequencySubText" Text="核心频率" FontSize="10"
+                        <TextBlock x:Name="FrequencySubText" Text="核心频率" FontSize="11.5"
                                    Foreground="{DynamicResource FaintBrush}" Margin="0,3,0,0" />
                     </StackPanel>
 
@@ -95,7 +95,7 @@
                     <StackPanel Grid.Column="1" Margin="38,0,0,0" VerticalAlignment="Center">
                         <TextBlock Text="全核测试中每个核心在同一档位的电压。" FontSize="10.5"
                                    Foreground="{DynamicResource MutedBrush}" />
-                        <TextBlock Text="柱长为电压；铜色是当前档位电压最高的核心。" FontSize="10"
+                        <TextBlock Text="柱长为电压；铜色是当前档位电压最高的核心。" FontSize="11.5"
                                    Foreground="{DynamicResource FaintBrush}" Margin="0,4,0,0" />
                     </StackPanel>
 
@@ -119,7 +119,7 @@
                     <StackPanel VerticalAlignment="Center">
                         <TextBlock x:Name="MaxCoreText" Text="—" FontFamily="Cascadia Mono, Consolas"
                                    FontSize="11.5" FontWeight="SemiBold" Foreground="{DynamicResource CopperBrush}" />
-                        <TextBlock x:Name="CoreCountText" Text="—" FontSize="9.5"
+                        <TextBlock x:Name="CoreCountText" Text="—" FontSize="11"
                                    Foreground="{DynamicResource FaintBrush}" Margin="0,4,0,0" />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">

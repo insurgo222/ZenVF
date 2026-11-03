@@ -174,8 +174,22 @@ public static class ChartBuilder
         return $"#{color.R:X2}{color.G:X2}{color.B:X2}";
     }
 
+    /// <summary>
+    /// OxyPlot's TextAnnotation draws a 1px black stroke box by default, which
+    /// turned every point label into a boxed chip. Labels here are plain text.
+    /// </summary>
+    public class PlainTextAnnotation : TextAnnotation
+    {
+        public PlainTextAnnotation()
+        {
+            Stroke = OxyColors.Transparent;
+            StrokeThickness = 0;
+            Background = OxyColors.Undefined;
+        }
+    }
+
     /// <summary>Point label that can be dimmed together with its CCD line.</summary>
-    public sealed class CcdTextAnnotation : TextAnnotation
+    public sealed class CcdTextAnnotation : PlainTextAnnotation
     {
         public int CcdIndex { get; init; }
     }
@@ -361,6 +375,14 @@ public static class ChartBuilder
 
             if (ccdMaxCores.Count > 0)
             {
+                // Rank curves by mean voltage so the upper curve labels above its
+                // points and the lower curve below. Choosing by CCD parity put
+                // CCD0's labels on top of CCD1's line whenever CCD0 ran lower.
+                Dictionary<int, int> rankByCcd = ccdMaxCores
+                    .OrderByDescending(pair => pair.Value.Average(p => p.Core.Voltage))
+                    .Select((pair, rank) => (pair.Key, rank))
+                    .ToDictionary(item => item.Key, item => item.rank);
+
                 foreach (KeyValuePair<int, List<(FrequencyCoreVoltages Frequency, CoreVoltageSample Core)>> ccd in ccdMaxCores)
                 {
                     int ccdIndex = ccd.Key;
@@ -405,22 +427,24 @@ public static class ChartBuilder
                     if (maxCorePoints.Count <= 48)
                     {
                         // The legend identifies the CCD, so the point labels only
-                        // need the short core number. Labels are staggered above
-                        // and below the curve to reduce collisions when the two
-                        // CCD trajectories are close together.
-                        bool labelAbove = ccdIndex % 2 == 0;
+                        // need the short core number. The upper curve labels
+                        // above, the lower curve below, so each label stays on
+                        // the outside of its own line.
+                        bool labelAbove = rankByCcd[ccdIndex] % 2 == 0;
                         foreach (var pair in maxCorePoints)
                         {
                             model.Annotations.Add(new CcdTextAnnotation
                             {
                                 CcdIndex = ccdIndex,
                                 Text = $"#{pair.Core.DisplayCoreId}",
-                                TextPosition = new DataPoint(
-                                    pair.Core.ClockMHz,
-                                    pair.Core.Voltage + (labelAbove ? 0.0055 : -0.0055)),
+                                // Anchor on the point and push the label a fixed
+                                // number of screen pixels away; a data-space offset
+                                // shrank to ~4px at normal zoom and hit the marker.
+                                TextPosition = new DataPoint(pair.Core.ClockMHz, pair.Core.Voltage),
+                                Offset = new ScreenVector(0, labelAbove ? -9 : 9),
                                 TextColor = PointLabelColor,
                                 Font = "Bahnschrift",
-                                FontSize = 8.5,
+                                FontSize = 10,
                                 TextHorizontalAlignment = HorizontalAlignment.Center,
                                 TextVerticalAlignment = labelAbove
                                     ? VerticalAlignment.Bottom
@@ -475,13 +499,13 @@ public static class ChartBuilder
                 ? $"STOCK {stock} MHz  ·  SMU CEILING {ceiling} MHz"
                 : $"STOCK {stock} MHz";
 
-            model.Annotations.Add(new TextAnnotation
+            model.Annotations.Add(new PlainTextAnnotation
             {
                 Text = label,
                 TextPosition = new DataPoint(xMax - ((xMax - xMin) * 0.015), yMin + ((yMax - yMin) * 0.055)),
-                TextColor = OxyColor.FromAColor(110, Yellow),
+                TextColor = OxyColor.FromAColor(180, Yellow),
                 Font = "Bahnschrift",
-                FontSize = 9,
+                FontSize = 11,
                 TextHorizontalAlignment = HorizontalAlignment.Right,
                 TextVerticalAlignment = VerticalAlignment.Bottom
             });
@@ -513,7 +537,7 @@ public static class ChartBuilder
             LegendBorder = OxyColors.Transparent,
             LegendBorderThickness = 0,
             LegendFont = "Bahnschrift",
-            LegendFontSize = 9.5,
+            LegendFontSize = 11,
             LegendTextColor = Text,
             LegendMargin = 2,
             LegendPadding = 2,
@@ -677,13 +701,13 @@ public static class ChartBuilder
         }
         else if (singleCoreLoad)
         {
-            model.Annotations.Add(new TextAnnotation
+            model.Annotations.Add(new PlainTextAnnotation
             {
                 Text = "SINGLE-CORE LOAD",
                 TextPosition = new DataPoint(xMin + ((xMax - xMin) * 0.015), yMin + ((yMax - yMin) * 0.055)),
-                TextColor = OxyColor.FromAColor(150, BlueLight),
+                TextColor = OxyColor.FromAColor(170, BlueLight),
                 Font = "Bahnschrift",
-                FontSize = 9,
+                FontSize = 11,
                 TextHorizontalAlignment = HorizontalAlignment.Left,
                 TextVerticalAlignment = VerticalAlignment.Bottom
             });
@@ -695,13 +719,13 @@ public static class ChartBuilder
                 ? $"STOCK {stock} MHz  ·  SMU CEILING {ceiling} MHz"
                 : $"STOCK {stock} MHz";
 
-            model.Annotations.Add(new TextAnnotation
+            model.Annotations.Add(new PlainTextAnnotation
             {
                 Text = label,
                 TextPosition = new DataPoint(xMax - ((xMax - xMin) * 0.015), yMin + ((yMax - yMin) * 0.055)),
-                TextColor = OxyColor.FromAColor(110, Yellow),
+                TextColor = OxyColor.FromAColor(180, Yellow),
                 Font = "Bahnschrift",
-                FontSize = 9,
+                FontSize = 11,
                 TextHorizontalAlignment = HorizontalAlignment.Right,
                 TextVerticalAlignment = VerticalAlignment.Bottom
             });
@@ -860,7 +884,7 @@ public static class ChartBuilder
             TicklineColor = OxyColors.Transparent,
             AxislineColor = OxyColors.Transparent
         });
-        model.Annotations.Add(new TextAnnotation
+        model.Annotations.Add(new PlainTextAnnotation
         {
             Text = title,
             TextPosition = new DataPoint(0.5, 0.54),
@@ -870,7 +894,7 @@ public static class ChartBuilder
             TextHorizontalAlignment = HorizontalAlignment.Center,
             TextVerticalAlignment = VerticalAlignment.Middle
         });
-        model.Annotations.Add(new TextAnnotation
+        model.Annotations.Add(new PlainTextAnnotation
         {
             Text = hint,
             TextPosition = new DataPoint(0.5, 0.46),
@@ -1303,7 +1327,7 @@ public static class ChartBuilder
         yAxis.Title = null;
         yAxis.TextColor = OxyColors.Transparent;
 
-        model.Annotations.Add(new TextAnnotation
+        model.Annotations.Add(new PlainTextAnnotation
         {
             Text = "等待测试数据",
             TextPosition = new DataPoint((xMin + xMax) / 2, (yMin + yMax) / 2),
