@@ -48,6 +48,40 @@
             <Setter Property="TextAlignment" Value="Right" />
             <Setter Property="Margin" Value="0,0,0,4" />
         </Style>
+        <!-- Per-core chart legend: one row per CCD, each core a colour dot and
+             its number, matching the line colours in the chart. -->
+        <DataTemplate x:Key="CoreLegendGroupTemplate">
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="52" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding Name}" FontFamily="Cascadia Mono, Consolas" FontSize="11.5"
+                           FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}"
+                           VerticalAlignment="Center" />
+                <ItemsControl Grid.Column="1" ItemsSource="{Binding Items}" IsTabStop="False">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal" Width="78" Margin="0,1,0,1">
+                                <Border Width="14" Height="3" CornerRadius="1.5" Background="{Binding Swatch}"
+                                        VerticalAlignment="Center" />
+                                <Ellipse Width="7" Height="7" Fill="{Binding Swatch}" Margin="-10,0,0,0"
+                                         VerticalAlignment="Center" />
+                                <TextBlock Text="{Binding Label}" FontFamily="Cascadia Mono, Consolas" FontSize="11"
+                                           Foreground="{DynamicResource MutedBrush}" Margin="9,0,0,0"
+                                           VerticalAlignment="Center" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Grid>
+        </DataTemplate>
+
         <Style x:Key="LogLevelText" TargetType="TextBlock">
             <Setter Property="FontFamily" Value="Cascadia Mono, Consolas" />
             <Setter Property="FontSize" Value="9.5" />
@@ -526,7 +560,6 @@
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
-                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
 
                             <Grid Margin="18,14,12,10">
@@ -624,13 +657,15 @@
                                 <TabItem Header="每核 V/F" Style="{StaticResource ChartTabItem}">
                                     <Grid>
                                         <Grid.RowDefinitions>
-                                            <RowDefinition Height="30" />
+                                            <RowDefinition Height="Auto" />
                                             <RowDefinition Height="*" />
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Margin="18,0,18,0"
-                                                   Text="每条线代表一个核心；悬停查看频率和电压。"
-                                                   FontSize="11.5" Foreground="{DynamicResource FaintBrush}"
-                                                   VerticalAlignment="Center" />
+                                        <StackPanel Grid.Row="0" Margin="18,8,18,6">
+                                            <TextBlock Text="每条线代表一个核心；悬停查看频率和电压。"
+                                                       FontSize="11.5" Foreground="{DynamicResource FaintBrush}" />
+                                            <ItemsControl ItemsSource="{Binding PerCoreLegend}" Margin="0,8,0,0" IsTabStop="False"
+                                                          ItemTemplate="{StaticResource CoreLegendGroupTemplate}" />
+                                        </StackPanel>
                                         <Grid Grid.Row="1">
                                             <oxy:PlotView x:Name="PerCorePlotView"
                                                           Model="{Binding PerCorePlotModel}" Background="Transparent"
@@ -657,13 +692,15 @@
                                 <TabItem Header="单核 V/F" Style="{StaticResource ChartTabItem}">
                                     <Grid>
                                         <Grid.RowDefinitions>
-                                            <RowDefinition Height="30" />
+                                            <RowDefinition Height="Auto" />
                                             <RowDefinition Height="*" />
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Margin="18,0,18,0"
-                                                   Text="每个频率只测一个核心；电压来自 CPU VDDCR_VDD。"
-                                                   FontSize="11.5" Foreground="{DynamicResource FaintBrush}"
-                                                   VerticalAlignment="Center" />
+                                        <StackPanel Grid.Row="0" Margin="18,8,18,6">
+                                            <TextBlock Text="每个频率只测一个核心；电压来自 CPU VDDCR_VDD。"
+                                                       FontSize="11.5" Foreground="{DynamicResource FaintBrush}" />
+                                            <ItemsControl ItemsSource="{Binding SingleCoreLegend}" Margin="0,8,0,0" IsTabStop="False"
+                                                          ItemTemplate="{StaticResource CoreLegendGroupTemplate}" />
+                                        </StackPanel>
                                         <Grid Grid.Row="1">
                                             <oxy:PlotView x:Name="SingleCorePlotView"
                                                           Model="{Binding SingleCorePlotModel}" Background="Transparent"
@@ -688,128 +725,6 @@
                                     </Grid>
                                 </TabItem>
                             </TabControl>
-
-                            <!-- Signature: core floorplan -->
-                            <Border Grid.Row="2" BorderBrush="{DynamicResource DividerBrush}" BorderThickness="0,1,0,0"
-                                    Background="{DynamicResource InsetBrush}" Padding="18,12,18,12">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-
-                                    <StackPanel>
-                                        <Grid>
-                                            <TextBlock Text="核心版图" Style="{StaticResource SectionLabel}" />
-                                            <TextBlock Text="{Binding CoreMapCaption}" Style="{StaticResource SectionLabel}"
-                                                       Foreground="{DynamicResource FaintBrush}"
-                                                       HorizontalAlignment="Right" />
-                                        </Grid>
-
-                                        <ItemsControl ItemsSource="{Binding CoreMap}" Margin="0,8,0,0">
-                                            <ItemsControl.ItemsPanel>
-                                                <ItemsPanelTemplate>
-                                                    <StackPanel />
-                                                </ItemsPanelTemplate>
-                                            </ItemsControl.ItemsPanel>
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                    <Grid Margin="0,0,0,6">
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="78" />
-                                                            <ColumnDefinition Width="*" />
-                                                        </Grid.ColumnDefinitions>
-                                                        <StackPanel VerticalAlignment="Center">
-                                                            <StackPanel Orientation="Horizontal">
-                                                                <Rectangle Width="2" Height="12" Fill="{Binding Accent}" VerticalAlignment="Center" />
-                                                                <TextBlock Text="{Binding Name}" FontFamily="Cascadia Mono, Consolas"
-                                                                           FontSize="12" FontWeight="SemiBold"
-                                                                           Foreground="{DynamicResource TextBrush}"
-                                                                           Margin="5,0,0,0" />
-                                                            </StackPanel>
-                                                            <TextBlock Text="{Binding Meta}" FontSize="10.5"
-                                                                       Foreground="{DynamicResource FaintBrush}"
-                                                                       Margin="7,1,0,0" TextTrimming="CharacterEllipsis"
-                                                                       ToolTip="{Binding Meta}" />
-                                                        </StackPanel>
-
-                                                        <ItemsControl Grid.Column="1" ItemsSource="{Binding Cores}">
-                                                            <ItemsControl.ItemsPanel>
-                                                                <ItemsPanelTemplate>
-                                                                    <UniformGrid Rows="1" HorizontalAlignment="Left" />
-                                                                </ItemsPanelTemplate>
-                                                            </ItemsControl.ItemsPanel>
-                                                            <ItemsControl.ItemTemplate>
-                                                                <DataTemplate>
-                                                                    <Border Width="68" Height="44" Margin="0,0,5,0"
-                                                                            ToolTip="{Binding Tooltip}">
-                                                                        <Border.Style>
-                                                                            <Style TargetType="Border">
-                                                                                <Setter Property="Background" Value="{DynamicResource CoreBlockBrush}" />
-                                                                                <Setter Property="BorderBrush" Value="{DynamicResource CoreBlockBorderBrush}" />
-                                                                                <Setter Property="BorderThickness" Value="1" />
-                                                                                <Style.Triggers>
-                                                                                    <DataTrigger Binding="{Binding IsMax}" Value="True">
-                                                                                        <Setter Property="BorderBrush" Value="{DynamicResource CopperBrush}" />
-                                                                                        <Setter Property="Background" Value="{DynamicResource CopperSoftBrush}" />
-                                                                                    </DataTrigger>
-                                                                                    <DataTrigger Binding="{Binding IsLoaded}" Value="True">
-                                                                                        <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
-                                                                                    </DataTrigger>
-                                                                                </Style.Triggers>
-                                                                            </Style>
-                                                                        </Border.Style>
-                                                                        <Grid>
-                                                                            <Rectangle Height="3" VerticalAlignment="Bottom"
-                                                                                       Fill="{DynamicResource CopperBrush}"
-                                                                                       Opacity="{Binding Heat}" />
-                                                                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                                                                                <TextBlock Text="{Binding Label}"
-                                                                                           FontFamily="Cascadia Mono, Consolas"
-                                                                                           FontSize="10"
-                                                                                           Foreground="{DynamicResource FaintBrush}"
-                                                                                           HorizontalAlignment="Center" />
-                                                                                <TextBlock Text="{Binding VoltageText}"
-                                                                                           FontFamily="Cascadia Mono, Consolas"
-                                                                                           FontSize="12.5" FontWeight="SemiBold"
-                                                                                           Foreground="{DynamicResource TextBrush}"
-                                                                                           HorizontalAlignment="Center" />
-                                                                            </StackPanel>
-                                                                        </Grid>
-                                                                    </Border>
-                                                                </DataTemplate>
-                                                            </ItemsControl.ItemTemplate>
-                                                        </ItemsControl>
-                                                    </Grid>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                    </StackPanel>
-
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="28,0,0,0">
-                                        <StackPanel Margin="0,0,20,0">
-                                            <TextBlock Text="PACKAGE" Style="{StaticResource SectionLabel}" />
-                                            <TextBlock Text="{Binding PackagePowerText}" FontFamily="Cascadia Mono, Consolas"
-                                                       FontSize="16" FontWeight="SemiBold"
-                                                       Foreground="{DynamicResource TextBrush}" Margin="0,4,0,0" />
-                                        </StackPanel>
-                                        <Border Width="1" Height="34" Background="{DynamicResource BorderBrush}" Margin="0,0,20,0" />
-                                        <StackPanel Margin="0,0,20,0">
-                                            <TextBlock Text="TCTL" Style="{StaticResource SectionLabel}" />
-                                            <TextBlock Text="{Binding TctlText}" FontFamily="Cascadia Mono, Consolas"
-                                                       FontSize="16" FontWeight="SemiBold"
-                                                       Foreground="{DynamicResource TextBrush}" Margin="0,4,0,0" />
-                                        </StackPanel>
-                                        <Border Width="1" Height="34" Background="{DynamicResource BorderBrush}" Margin="0,0,20,0" />
-                                        <StackPanel>
-                                            <TextBlock Text="AVG CLOCK" Style="{StaticResource SectionLabel}" />
-                                            <TextBlock Text="{Binding AverageClockText}" FontFamily="Cascadia Mono, Consolas"
-                                                       FontSize="16" FontWeight="SemiBold"
-                                                       Foreground="{DynamicResource TextBrush}" Margin="0,4,0,0" />
-                                        </StackPanel>
-                                    </StackPanel>
-                                </Grid>
-                            </Border>
                         </Grid>
                     </Border>
 

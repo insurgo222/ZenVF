@@ -159,7 +159,41 @@ public static class ChartBuilder
         double StrokeThickness = 1.8,
         double MarkerSize = 3.4,
         IReadOnlyList<int>? PointCoreIds = null,
-        int? CcdIndex = null);
+        int? CcdIndex = null,
+        string? LegendText = null);
+
+    /// <summary>
+    /// Per-core legend grouped by CCD, read back from the series so swatch
+    /// colours always match the lines (including after a theme change).
+    /// </summary>
+    public static IReadOnlyList<CoreLegendGroup> BuildCoreLegend(PlotModel model)
+    {
+        return model.Series
+            .OfType<LineSeries>()
+            .Select(line => line.Tag as ChartSeriesTag)
+            .Where(tag => tag is { CcdIndex: not null, LegendText: not null })
+            .GroupBy(tag => tag!.CcdIndex!.Value)
+            .OrderBy(group => group.Key)
+            .Select(group => new CoreLegendGroup
+            {
+                Name = $"CCD{group.Key}",
+                Items = group
+                    .Select(tag => new CoreLegendItem
+                    {
+                        Label = tag!.LegendText!,
+                        Swatch = ToFrozenBrush(tag.BaseColor)
+                    })
+                    .ToList()
+            })
+            .ToList();
+    }
+
+    private static System.Windows.Media.SolidColorBrush ToFrozenBrush(OxyColor color)
+    {
+        System.Windows.Media.SolidColorBrush brush = new(WpfColor.FromArgb(color.A, color.R, color.G, color.B));
+        brush.Freeze();
+        return brush;
+    }
 
     public static OxyColor PointLabelColor { get; private set; } = OxyColor.Parse("#E1E2E9");
 
@@ -525,26 +559,10 @@ public static class ChartBuilder
             TextColor = Text,
             TitleColor = Text,
             DefaultFontSize = 12,
-            IsLegendVisible = true
+            // The per-core legend is drawn by MainWindow, one row per CCD
+            // (see BuildCoreLegend); OxyPlot's legend only wraps by width.
+            IsLegendVisible = false
         };
-
-        model.Legends.Add(new Legend
-        {
-            LegendPosition = LegendPosition.TopCenter,
-            LegendPlacement = LegendPlacement.Outside,
-            LegendOrientation = LegendOrientation.Horizontal,
-            LegendBackground = Background,
-            LegendBorder = OxyColors.Transparent,
-            LegendBorderThickness = 0,
-            LegendFont = "Bahnschrift",
-            LegendFontSize = 11,
-            LegendTextColor = Text,
-            LegendMargin = 2,
-            LegendPadding = 2,
-            LegendSymbolLength = 12,
-            LegendItemSpacing = 3,
-            LegendColumnSpacing = 10
-        });
 
         List<CoreVoltageSample> allCorePoints = result?.CoreVoltages
             .SelectMany(f => f.Cores)
@@ -683,7 +701,8 @@ public static class ChartBuilder
                         label,
                         $"CCD{first.CcdIndex} · Core {first.DisplayCoreId}",
                         color,
-                        CcdIndex: first.CcdIndex)
+                        CcdIndex: first.CcdIndex,
+                        LegendText: $"Core {first.DisplayCoreId}")
                 };
 
                 foreach (CoreVoltageSample core in samples)

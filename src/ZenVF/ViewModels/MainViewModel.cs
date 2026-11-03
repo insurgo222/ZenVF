@@ -18,7 +18,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private readonly AppOptions _options;
     private readonly SweepEngine _engine = new();
-    private readonly DispatcherTimer _telemetryTimer;
     private readonly RelayCommand _stopCommand;
     private readonly AsyncRelayCommand _startCommand;
     private readonly AsyncRelayCommand _singleCoreStartCommand;
@@ -40,7 +39,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private bool _isInputValid;
     private bool _isHardwareReady;
     private bool _disposed;
-    private bool _telemetryBusy;
     private bool _suppressValidation;
     private int _progressPercent;
     private string _statusText = "初始化中…";
@@ -69,9 +67,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private string _singleCorePlanText = "每核单独测试参数待检查";
     private string _progressTimeText = "预计时间 —";
     private string _rangeHintText = "—";
-    private string _packagePowerText = "—";
-    private string _tctlText = "—";
-    private string _averageClockText = "—";
     private string _chartSubtitle = "等待扫描数据";
     private string _pawnIoStatusText = "PawnIO —";
     private string _smuStatusText = "SMU —";
@@ -92,10 +87,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private PlotModel _plotModel;
     private PlotModel _perCorePlotModel;
     private PlotModel _singleCorePlotModel;
+    private IReadOnlyList<CoreLegendGroup> _perCoreLegend = Array.Empty<CoreLegendGroup>();
+    private IReadOnlyList<CoreLegendGroup> _singleCoreLegend = Array.Empty<CoreLegendGroup>();
     private SweepSettings? _lastSettings;
     private double _runPlannedSeconds;
-    private readonly List<CoreMapItem> _coreMapItems = new();
-    private string _coreMapCaption = "等待测试数据";
 
     public MainViewModel(AppOptions options)
     {
@@ -112,12 +107,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ClearLogCommand = new RelayCommand(() => LogItems.Clear());
         _togglePboCommand = new AsyncRelayCommand(TogglePboAsync, () => CanTogglePbo && !IsRunning);
         _installPawnIoCommand = new AsyncRelayCommand(InstallPawnIoAsync, () => CanInstallPawnIo);
-
-        _telemetryTimer = new DispatcherTimer(DispatcherPriority.Background)
-        {
-            Interval = TimeSpan.FromMilliseconds(700)
-        };
-        _telemetryTimer.Tick += async (_, _) => await RefreshTelemetryAsync();
 
         try
         {
@@ -137,14 +126,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>Columns for the CCD card grid: a lone CCD card spans the full rail width.</summary>
     public int CcdColumns => CcdOptions.Count <= 1 ? 1 : 2;
-    public ObservableCollection<CoreMapGroup> CoreMap { get; } = new();
     public ObservableCollection<LogEntry> LogItems { get; } = new();
-
-    public string CoreMapCaption
-    {
-        get => _coreMapCaption;
-        private set => Set(ref _coreMapCaption, value);
-    }
 
     public event EventHandler? SingleCoreSweepStarted;
 
@@ -494,24 +476,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         private set => Set(ref _rangeHintText, value);
     }
 
-    public string PackagePowerText
-    {
-        get => _packagePowerText;
-        private set => Set(ref _packagePowerText, value);
-    }
-
-    public string TctlText
-    {
-        get => _tctlText;
-        private set => Set(ref _tctlText, value);
-    }
-
-    public string AverageClockText
-    {
-        get => _averageClockText;
-        private set => Set(ref _averageClockText, value);
-    }
-
     public string ChartSubtitle
     {
         get => _chartSubtitle;
@@ -594,6 +558,20 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         private set => Set(ref _singleCorePlotModel, value);
     }
 
+    /// <summary>Per-core chart legend, one row per CCD.</summary>
+    public IReadOnlyList<CoreLegendGroup> PerCoreLegend
+    {
+        get => _perCoreLegend;
+        private set => Set(ref _perCoreLegend, value);
+    }
+
+    /// <summary>Single-core chart legend, one row per CCD.</summary>
+    public IReadOnlyList<CoreLegendGroup> SingleCoreLegend
+    {
+        get => _singleCoreLegend;
+        private set => Set(ref _singleCoreLegend, value);
+    }
+
     public SweepRunResult? CurrentRun => _currentRun;
     public SweepRunResult? SingleCoreRun => _singleCoreRun;
 
@@ -615,8 +593,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
 
         IsInitializing = false;
-        _telemetryTimer.Start();
-        await RefreshTelemetryAsync();
         ValidateInputs();
         RefreshCommands();
     }
@@ -678,8 +654,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Log(LogLevel.Info, "已载入 9950X3D 演示 V/F 曲线（每档每 CCD 最高电压核心）。");
         Log(LogLevel.Info, $"已载入单核演示扫描（{_singleCoreRun.CoreVoltages.Count} 档 × {_singleCoreRun.CoreVoltages.Sum(f => f.Cores.Count)} 个核心样本）。");
         Log(LogLevel.Info, "最高频率接管：已打开（演示）。");
-        BuildCoreMap();
-        UpdateCoreMap(_currentRun.CoreVoltages.LastOrDefault());
     }
 
     private async Task InitializeHardwareAsync()
@@ -855,7 +829,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(PboToggleHint));
         OnPropertyChanged(nameof(CanInstallPawnIo));
 
-        BuildCoreMap();
     }
 
     private async Task MeasureStartupEclkAsync()
@@ -1031,99 +1004,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(CcdColumns));
     }
 
-    private void BuildCoreMap()
-    {
-        CoreMap.Clear();
-        _coreMapItems.Clear();
-        if (_topology is null)
-        {
-            UpdateCoreMap(null);
-            return;
-        }
-
-        foreach (CcdInfo ccd in _topology.Ccds.OrderBy(c => c.Index))
-        {
-            CoreMapGroup group = new()
-            {
-                CcdIndex = ccd.Index,
-                Name = ccd.Name,
-                Meta = ccd.Is3DCache ? "3D" : $"{ccd.PhysicalCoreCount} 核",
-                Accent = ChartBuilder.CcdColorHex(ccd.Index)
-            };
-
-            foreach (PhysicalCoreRef core in _topology.GetPhysicalCores(new[] { ccd.Index }))
-            {
-                CoreMapItem item = new()
-                {
-                    CoreId = core.DisplayCoreId,
-                    CcdIndex = ccd.Index,
-                    Label = $"C{core.DisplayCoreId}"
-                };
-                group.Cores.Add(item);
-                _coreMapItems.Add(item);
-            }
-
-            CoreMap.Add(group);
-        }
-
-        UpdateCoreMap(null);
-    }
-
-    private void UpdateCoreMap(FrequencyCoreVoltages? frequency, bool singleCore = false)
-    {
-        if (frequency is null || frequency.Cores.Count == 0)
-        {
-            foreach (CoreMapItem item in _coreMapItems)
-            {
-                item.VoltageText = "—";
-                item.ClockText = "—";
-                item.Tooltip = $"Core #{item.CoreId} · 等待本档读数";
-                item.Heat = 0;
-                item.IsMax = false;
-                item.IsLoaded = false;
-            }
-
-            CoreMapCaption = "等待测试数据";
-            return;
-        }
-
-        List<CoreVoltageSample> valid = frequency.Cores
-            .Where(c => SensorValueSanity.IsPlausibleVoltage(c.Voltage))
-            .ToList();
-        double min = valid.Count > 0 ? valid.Min(c => c.Voltage) : 0;
-        double max = valid.Count > 0 ? valid.Max(c => c.Voltage) : 0;
-        int maxCoreId = frequency.MaxVoltageCore?.DisplayCoreId ?? -1;
-
-        foreach (CoreMapItem item in _coreMapItems)
-        {
-            CoreVoltageSample? sample = frequency.Cores
-                .FirstOrDefault(c => c.DisplayCoreId == item.CoreId);
-            if (sample is null || !SensorValueSanity.IsPlausibleVoltage(sample.Voltage))
-            {
-                item.VoltageText = "—";
-                item.ClockText = "—";
-                item.Heat = 0;
-                item.IsMax = false;
-                item.IsLoaded = false;
-                item.Tooltip = $"Core #{item.CoreId} · 本档无有效读数";
-                continue;
-            }
-
-            double span = max - min;
-            item.Heat = span > 0.0005
-                ? 0.18 + (0.62 * ((sample.Voltage - min) / span))
-                : 0.4;
-            item.VoltageText = $"{sample.Voltage:0.000}";
-            item.ClockText = sample.ClockMHz > 0 ? $"{sample.ClockMHz:0}" : "—";
-            item.IsMax = sample.DisplayCoreId == maxCoreId;
-            item.IsLoaded = sample.LogicalProcessor >= 0;
-            item.Tooltip = $"Core #{item.CoreId} · CCD{item.CcdIndex}\n"
-                + $"{sample.Voltage:0.000} V · {sample.ClockMHz:0} MHz · {sample.Temperature:0} °C";
-        }
-
-        CoreMapCaption = $"{(singleCore ? "单核" : "全核")} · {frequency.RequestedFMax} MHz · {valid.Count} 核";
-    }
-
     private void ValidateInputs()
     {
         if (_suppressValidation)
@@ -1276,7 +1156,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         };
         ApplyEclk(null);
         RebuildCharts(_currentRun, false);
-        UpdateCoreMap(null);
         ChartSubtitle = "全核测试中…";
         StatusText = "全核测试 · 正在设置频率";
         StageText = "准备全核负载";
@@ -1665,7 +1544,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         };
         ApplyEclk(null);
         RebuildCharts(_currentRun, true);
-        UpdateCoreMap(null);
         ChartSubtitle = "DEMO SWEEP RUNNING";
         StatusText = "演示全核测试中…";
         Log(LogLevel.Info, "DEMO 全核测试开始，不写入任何硬件。");
@@ -1691,7 +1569,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 }
 
                 RebuildCharts(_currentRun, true);
-                UpdateCoreMap(frequency);
                 OnPropertyChanged(nameof(CanShowCoreVoltages));
                 double fraction = (i + 1) / (double)frequencies.Count;
                 ProgressPercent = (int)Math.Round(fraction * 100);
@@ -1904,11 +1781,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public void RefreshChartsForTheme()
     {
-        foreach (CoreMapGroup group in CoreMap)
-        {
-            group.Accent = ChartBuilder.CcdColorHex(group.CcdIndex);
-        }
-
         RebuildCharts(_currentRun, IsDemo);
         RebuildSingleCoreChart(IsDemo);
     }
@@ -1992,7 +1864,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         RefreshHasResult();
         RebuildSingleCoreChart(false);
         UpdateChartSubtitle(_currentRun);
-        UpdateCoreMap(frequency, singleCore: true);
     }
 
     private void AddCoreVoltages(FrequencyCoreVoltages frequency)
@@ -2013,7 +1884,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(CanShowCoreVoltages));
         RebuildCharts(_currentRun, false);
         UpdateChartSubtitle(_currentRun);
-        UpdateCoreMap(frequency);
     }
 
     private void AddLivePoint(SweepPoint point)
@@ -2044,11 +1914,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         PlotModel = ChartBuilder.Build(result, isDemo);
         PerCorePlotModel = ChartBuilder.BuildPerCore(result, isDemo);
+        PerCoreLegend = ChartBuilder.BuildCoreLegend(PerCorePlotModel);
     }
 
     private void RebuildSingleCoreChart(bool isDemo)
     {
         SingleCorePlotModel = ChartBuilder.BuildPerCore(_singleCoreRun, isDemo, true);
+        SingleCoreLegend = ChartBuilder.BuildCoreLegend(SingleCorePlotModel);
     }
 
     private void RefreshHasResult()
@@ -2173,32 +2045,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ApplyAssessment(assessment);
     }
 
-    private async Task RefreshTelemetryAsync()
-    {
-        if (_telemetryBusy || _sensors is null || IsInitializing)
-        {
-            return;
-        }
-
-        _telemetryBusy = true;
-        try
-        {
-            SensorSnapshot snapshot = await Task.Run(() => _sensors.Sample());
-            ApplyTelemetry(snapshot);
-        }
-        finally
-        {
-            _telemetryBusy = false;
-        }
-    }
-
-    private void ApplyTelemetry(SensorSnapshot snapshot)
-    {
-        PackagePowerText = snapshot.PackagePower > 0 ? $"{snapshot.PackagePower:0.0} W" : "—";
-        TctlText = snapshot.Tctl > 0 ? $"{snapshot.Tctl:0.0} °C" : "—";
-        AverageClockText = snapshot.AverageEffectiveClock > 0 ? $"{snapshot.AverageEffectiveClock:0} MHz" : "—";
-    }
-
     private async Task InstallPawnIoAsync()
     {
         string path = GetPawnIoInstallerPath();
@@ -2236,7 +2082,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
 
         _disposed = true;
-        _telemetryTimer.Stop();
         try
         {
             _cts?.Cancel();
