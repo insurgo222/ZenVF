@@ -40,8 +40,8 @@ public sealed class SmuController : IDisposable
     private int _pmTableSize;
     private int _perCoreVoltageBase = -1;
     private int _vddcrVddVoltageIndex = -1;
-    private int _vddcrVddPeakVoltageIndex = -1;
-    private int _svi3VddVoltageIndex = -1;
+    private int _vddcrVddFallbackIndex = -1;
+    private int _vddcrVddSecondFallbackIndex = -1;
 
     public SmuController(CpuDescriptor cpu)
     {
@@ -444,30 +444,36 @@ public sealed class SmuController : IDisposable
             _pmTableVersion = (uint)result[0];
             switch (_pmTableVersion)
             {
-                // Granite Ridge (Ryzen 9000 desktop) PM table. The per-core
-                // voltage block starts at index 317; the values are volts.
-                // 0x00620205 is the table version reported by current AGESA
-                // on the 9800X3D; it has the same 0x994 layout.
+                // Granite Ridge (Ryzen 9000 desktop) PM table, 0x994 bytes of
+                // floats in volts.
                 //
-                // Index 19 is the SVI3 VDDCR_VDD telemetry average, the same
-                // package-rail value HWiNFO exposes as "CPU VDDCR_VDD Voltage".
-                // Index 18 (peak) and index 49 (Vcore P1) are fallbacks because
-                // table revisions have moved this block before.
+                // Verified on a 9800X3D (table 0x00620205, 2026-11-03) by
+                // reading the table without refreshing it, i.e. the exact
+                // snapshot HWiNFO had just requested, and comparing bit for
+                // bit with HWiNFO's shared memory across idle / all-core /
+                // single-core load:
+                //   index 317 + N = HWiNFO "Core N VID"
+                //   index 49      = HWiNFO "CPU VDDCR_VDD Voltage (SVI3 TFN)"
+                //   index 54      = HWiNFO "CPU VDDCR_SOC Voltage (SVI3 TFN)"
+                // Index 19 (previously used for VDDCR_VDD) is a different
+                // quantity: ~19 mV higher under all-core load. It and index 18
+                // remain last-resort fallbacks only.
+                // 0x00621201 / 0x00621202 are assumed to share this layout.
                 case 0x00620205:
                 case 0x00621201:
                 case 0x00621202:
                     _pmTableSize = 0x994;
                     _perCoreVoltageBase = 317;
-                    _vddcrVddVoltageIndex = 19;
-                    _vddcrVddPeakVoltageIndex = 18;
-                    _svi3VddVoltageIndex = 49;
+                    _vddcrVddVoltageIndex = 49;
+                    _vddcrVddFallbackIndex = 19;
+                    _vddcrVddSecondFallbackIndex = 18;
                     break;
                 default:
                     _pmTableSize = 0;
                     _perCoreVoltageBase = -1;
                     _vddcrVddVoltageIndex = -1;
-                    _vddcrVddPeakVoltageIndex = -1;
-                    _svi3VddVoltageIndex = -1;
+                    _vddcrVddFallbackIndex = -1;
+                    _vddcrVddSecondFallbackIndex = -1;
                     break;
             }
         }
@@ -477,18 +483,17 @@ public sealed class SmuController : IDisposable
             _pmTableSize = 0;
             _perCoreVoltageBase = -1;
             _vddcrVddVoltageIndex = -1;
-            _vddcrVddPeakVoltageIndex = -1;
-            _svi3VddVoltageIndex = -1;
+            _vddcrVddFallbackIndex = -1;
+            _vddcrVddSecondFallbackIndex = -1;
         }
     }
 
     /// <summary>
-    /// Reads per-core VDDCR voltage from the SMU PM table. LibreHardwareMonitor
-    /// 0.9.6 exposes "Core #N VID" on Zen 4/5 from MSR 0xC0010293, which is
-    /// known to be wrong on these CPUs (it changes inversely with load). The PM
-    /// table is the same source HWiNFO uses and gives usable per-core values.
-    /// The package output is the SVI3 VDDCR_VDD telemetry average, used by the
-    /// per-core isolated test instead of the unreliable Core VID.
+    /// Reads per-core voltages and the VDDCR_VDD rail from the SMU PM table.
+    /// On a 9800X3D these are bit-identical to HWiNFO's "Core N VID" and
+    /// "CPU VDDCR_VDD Voltage (SVI3 TFN)" (see the layout notes in
+    /// ResolvePmTable). LibreHardwareMonitor's own "Core #N VID" on Zen 4/5
+    /// is not used when the PM table is available.
     /// </summary>
     public bool TryReadCoreVoltages(int coreCount, out double[] voltages)
     {
@@ -535,12 +540,12 @@ public sealed class SmuController : IDisposable
                 double package = ReadPmTableVoltage(table, _vddcrVddVoltageIndex);
                 if (package <= 0)
                 {
-                    package = ReadPmTableVoltage(table, _vddcrVddPeakVoltageIndex);
+                    package = ReadPmTableVoltage(table, _vddcrVddFallbackIndex);
                 }
 
                 if (package <= 0)
                 {
-                    package = ReadPmTableVoltage(table, _svi3VddVoltageIndex);
+                    package = ReadPmTableVoltage(table, _vddcrVddSecondFallbackIndex);
                 }
 
                 if (package > 0)
@@ -568,17 +573,10 @@ public sealed class SmuController : IDisposable
 
                 if (any)
                 {
-                    double maxCoreVoltage = values.Where(SensorValueSanity.IsPlausibleVoltage)
-                        .DefaultIfEmpty(0)
-                        .Max();
-                    if (package > 0 && maxCoreVoltage > 0 && maxCoreVoltage < package * 0.70)
-                    {
-                        // The per-core block at 317 is not the real core
-                        // voltage on this table revision. Reject it so the
-                        // caller can use the corrected SVI3 per-core fallback.
-                        return false;
-                    }
-
+                    // No plausibility veto against the package rail here: idle
+                    // cores legitimately sit near 0.75-0.8 V while VDDCR_VDD
+                    // stays above 1.2 V, and the old "max core < 70% of the
+                    // rail" check threw away correct, HWiNFO-identical data.
                     voltages = values;
                     return true;
                 }

@@ -737,7 +737,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
         else if (_smu?.HasPerCoreVoltageTable == true)
         {
-            Log(LogLevel.Success, $"每核电压源：SMU PM table 0x{_smu.PmTableVersion:X8}（已绕过 LHM 错误的 Zen 4/5 VID）。");
+            string verified = _smu.PmTableVersion == 0x00620205
+                ? "已实测与 HWiNFO 逐位一致"
+                : "布局按 0x00620205 推定";
+            Log(LogLevel.Success,
+                $"电压源：SMU PM table 0x{_smu.PmTableVersion:X8}，每核 = HWiNFO Core VID，单核测试 = HWiNFO CPU VDDCR_VDD（{verified}）。");
         }
         else if (_cpu.IsZen4 || _cpu.IsZen5)
         {

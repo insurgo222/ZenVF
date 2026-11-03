@@ -192,14 +192,12 @@ public sealed class LhmSensorService : ISensorService
                             .Where(SensorValueSanity.IsPlausibleVoltage)
                             .ToArray();
                         double pmFallback = valid.Length > 0 ? valid.Average() : 0;
-                        double lhmMaxVoltage = cores
-                            .Select(c => c.Vid)
-                            .DefaultIfEmpty(0)
-                            .Max();
-                        bool pmLooksLikeBadLhmValues = _correctSvi3Vid
-                            && lhmMaxVoltage >= 0.80
-                            && pmFallback < lhmMaxVoltage - 0.20;
-                        if (pmFallback > 0 && !pmLooksLikeBadLhmValues)
+                        // The PM table is verified bit-identical to HWiNFO's
+                        // Core VIDs, so it is never vetoed by LHM's VID. The old
+                        // check compared the PM *average* with LHM's *maximum*
+                        // and rejected correct data whenever most cores idled
+                        // (e.g. single-core load: 1.33 V + 7 x 0.77 V).
+                        if (pmFallback > 0)
                         {
                             cores = cores.Select(c =>
                             {
