@@ -1116,7 +1116,7 @@ public static class ChartBuilder
         builder.AppendLine("# ZenVF V/F 测试报告");
         builder.AppendLine();
         builder.AppendLine($"> 生成时间：{DateTime.Now:yyyy-MM-dd HH:mm:ss}  ");
-        builder.AppendLine($"> 数据来源：ZenVF {typeof(ChartBuilder).Assembly.GetName().Version?.ToString(3) ?? "1.0.8"}");
+        builder.AppendLine($"> 数据来源：ZenVF {typeof(ChartBuilder).Assembly.GetName().Version?.ToString(3) ?? "1.0.9"}");
         builder.AppendLine();
 
         builder.AppendLine("## 测试概要");

@@ -13,7 +13,7 @@
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
-    <Version>1.0.8</Version>
+    <Version>1.0.9</Version>
     <Product>ZenVF</Product>
     <Company>ZenVF</Company>
     <Description>AMD Zen 4 / Zen 5 PBO FMax V/F curve sweep tool</Description>

@@ -11,11 +11,12 @@ ZenVF 是 AMD Zen 4 / Zen 5 的 PBO 频率-电压（V/F）测试工具。它逐�
 - **全核测试**：所选 CCD 同时满载，逐档记录每个核心的电压，并绘制每个 CCD 的最高电压核心曲线。
 - **每核单独测试**：每次只给一个物理核心满载，得到单核 V/F 曲线。
 - **三个图表页**：最高电压核心、每核 V/F、单核 V/F。每核图里每个核心一种颜色，图例按 CCD 分行。支持悬停查看数值、滚轮缩放、拖动平移。
-- **每核电压窗口**：查看同一频率档位下所有核心的电压分布。
+- **每核电压窗口**：查看同一频率档位下所有核心的电压分布。在"单核 V/F"页打开时显示每核单独测试的结果，其他页显示全核测试的结果。
 - **eCLK 检测**：启动时读取约 3 秒，检测异步外频，并在每核电压窗口和导出中显示调整后的频率。
 - **导出**：PNG、CSV 和 Markdown 报告。
 - **最高频率接管**：测试结束、停止或退出时恢复原始 FMax，只恢复 ZenVF 自己改过的值，不会覆盖其他工具的设置。
 - **温度保护**：Tctl 连续 3 次达到 105 °C 时中止测试，预热阶段同样检查。CPU 到 Tjmax（95 °C；7000 系 X3D 为 89 °C）会自行降频，所以这条保护只在散热失效时才会触发；全核满载稳定在 Tjmax 是正常现象，不会中止测试，日志会提示该档受温度限制。
+- **SMU 重新连接**：SMU 不可用时，状态行右侧会出现"重新连接"按钮，不用重启 ZenVF 即可重试（例如启动时其他监控软件占用了 PCI 总线锁，或刚装好 PawnIO）。
 - **主题**：跟随系统或手动切换深浅色，支持预设和自定义主题色。
 
 ## 界面
@@ -98,7 +99,7 @@ ZenVF.exe --accent "#5BC0BE"
 ZenVF.exe --no-elevate          跳过提权重启提示
 ZenVF.exe --demo --screenshot out.png
 ZenVF.exe --demo --screenshot out.png --screenshot-tab 0|1|2
-ZenVF.exe --demo --screenshot-core out.png
+ZenVF.exe --demo --screenshot-core out.png [--screenshot-tab 2]   每核电压窗口（加 2 为每核单独测试）
 ZenVF.exe --demo --screenshot-theme out.png
 ```
 
@@ -111,6 +112,19 @@ ZenVF.exe --demo --screenshot-theme out.png
 - 主 V/F 图横轴是实测有效频率；eCLK 只影响每核电压窗口、标题和导出的频率标签。
 - 负载是内置 128-bit SSE2 循环，不启动外部 Prime95.exe，也不使用 AVX/AVX2。
 - 每核单独测试的电压是整颗 CPU 共用的 VDDCR_VDD 供电电压，不是单个核心的 VID；同一档内各核心共享该电压。
+
+## 常见问题
+
+**启动日志显示"SMU 初始化失败"**
+- 读取 FMax 和 PM table 前要先获得 PCI 总线锁，HWiNFO（启动或退出时）、MSI Center 等监控软件可能会占用它几秒。ZenVF 启动时会自动重试 3 次，失败时会说明原因。
+- 日志提示"PCI 总线锁一直被其他硬件监控程序占用"时，稍等片刻后点 SMU 状态行右侧的"重新连接"即可，不需要重启。
+- 只有提示"返回的 FMax 无效"时，才可能是 BIOS 锁定了 PBO 设置。
+
+**启动日志显示检测到 eCLK**
+- 说明 BIOS 中设置了异步外频（eCLK / BCLK2），核心实际频率 = FMax × eCLK 倍率。每核电压窗口、标题和导出会按倍率标注频率；图表横轴始终是实测频率。
+
+**和 HWiNFO 的读数差几毫伏**
+- 见上文"与 HWiNFO 对比"：比较平均值，不要比较最大值。
 
 ## 安全说明
 
@@ -128,7 +142,7 @@ dotnet test tests/ZenVF.Tests/ZenVF.Tests.csproj -c Release
 .\publish.ps1
 ```
 
-`dotnet test` 运行单元测试，不需要硬件、管理员权限或 PawnIO，覆盖：FMax 恢复规则、型号识别与平台支持、扫描参数校验、电压源选择、温度保护、eCLK 判断，以及 CSV / Markdown 导出格式。
+`dotnet test` 运行单元测试，不需要硬件、管理员权限或 PawnIO，覆盖：FMax 恢复规则、型号识别与平台支持、扫描参数校验、电压源选择、温度保护、负载线程计数、eCLK 判断，以及 CSV / Markdown 导出格式。
 
 输出目录：`dist\`。`publish.ps1` 默认生成 `win-x64` 自包含包；加 `-FrameworkDependent` 可生成依赖框架的版本。`publish.ps1` 会先清空 `dist\`，打包前请先关闭正在运行的 ZenVF。
 
