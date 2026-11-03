@@ -48,7 +48,7 @@
                                 <Border Background="{DynamicResource AccentBrush}" Margin="1,1,0,0" />
                             </UniformGrid>
                         </Grid>
-                        <TextBlock Text="每核电压" FontSize="14" FontWeight="SemiBold"
+                        <TextBlock x:Name="HeaderText" Text="每核电压" FontSize="14" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextBrush}" VerticalAlignment="Center" />
                         <Border x:Name="EclkPill" Style="{StaticResource EclkPill}" Margin="12,0,0,0"
                                 Padding="6,2" Visibility="Collapsed">
@@ -93,7 +93,7 @@
                     <Border Grid.Column="1" Width="1" Height="40" Background="{DynamicResource BorderBrush}"
                             HorizontalAlignment="Left" Margin="20,0,0,0" />
                     <StackPanel Grid.Column="1" Margin="38,0,0,0" VerticalAlignment="Center">
-                        <TextBlock Text="全核测试中每个核心在同一档位的电压。" FontSize="10.5"
+                        <TextBlock x:Name="ScopeText" Text="全核测试中每个核心在同一档位的电压。" FontSize="10.5"
                                    Foreground="{DynamicResource MutedBrush}" />
                         <TextBlock Text="柱长为电压；铜色是当前档位电压最高的核心。" FontSize="11.5"
                                    Foreground="{DynamicResource FaintBrush}" Margin="0,4,0,0" />

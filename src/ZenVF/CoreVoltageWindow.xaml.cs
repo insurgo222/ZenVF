@@ -10,15 +10,22 @@ public partial class CoreVoltageWindow : Window
 {
     private readonly SweepRunResult _result;
     private readonly bool _isDemo;
+    private readonly bool _singleCore;
     private readonly List<FrequencyCoreVoltages> _frequencies;
     private int _index;
     private PlotModel _plot;
 
-    public CoreVoltageWindow(SweepRunResult result, bool isDemo)
+    public CoreVoltageWindow(SweepRunResult result, bool isDemo, bool singleCore = false)
     {
         InitializeComponent();
         _result = result;
         _isDemo = isDemo;
+        _singleCore = singleCore;
+        Title = singleCore ? "ZenVF · 每核电压（每核单独测试）" : "ZenVF · 每核电压（全核测试）";
+        HeaderText.Text = singleCore ? "每核电压 · 每核单独测试" : "每核电压 · 全核测试";
+        ScopeText.Text = singleCore
+            ? "每核单独测试：每个核心单独满载时的 CPU VDDCR_VDD 电压。"
+            : "全核测试中每个核心在同一档位的电压。";
         _frequencies = result.CoreVoltages
             .Where(f => f.Cores.Count > 0)
             .OrderByDescending(f => f.RequestedFMax)
@@ -131,7 +138,7 @@ public partial class CoreVoltageWindow : Window
         {
             Title = "导出每核电压图",
             Filter = "PNG 图片 (*.png)|*.png",
-            FileName = $"ZenVF_CoreVoltage_{_result.ToEclkAdjustedFMax(frequency.RequestedFMax)}MHz_{DateTime.Now:yyyyMMdd_HHmm}.png",
+            FileName = $"ZenVF_CoreVoltage_{(_singleCore ? "SingleCore" : "AllCore")}_{_result.ToEclkAdjustedFMax(frequency.RequestedFMax)}MHz_{DateTime.Now:yyyyMMdd_HHmm}.png",
             AddExtension = true,
             DefaultExt = ".png"
         };

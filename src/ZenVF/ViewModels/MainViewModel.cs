@@ -23,6 +23,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly AsyncRelayCommand _singleCoreStartCommand;
     private readonly AsyncRelayCommand _togglePboCommand;
     private readonly AsyncRelayCommand _installPawnIoCommand;
+    private readonly AsyncRelayCommand _reconnectSmuCommand;
+    private bool _isReconnecting;
 
     private CpuDescriptor? _cpu;
     private CpuTopology? _topology;
@@ -107,6 +109,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ClearLogCommand = new RelayCommand(() => LogItems.Clear());
         _togglePboCommand = new AsyncRelayCommand(TogglePboAsync, () => CanTogglePbo && !IsRunning);
         _installPawnIoCommand = new AsyncRelayCommand(InstallPawnIoAsync, () => CanInstallPawnIo);
+        _reconnectSmuCommand = new AsyncRelayCommand(ReconnectSmuAsync, () => CanReconnectSmu);
 
         try
         {
@@ -141,6 +144,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand SingleCoreStartCommand => _singleCoreStartCommand;
     public AsyncRelayCommand TogglePboCommand => _togglePboCommand;
     public AsyncRelayCommand InstallPawnIoCommand => _installPawnIoCommand;
+    public AsyncRelayCommand ReconnectSmuCommand => _reconnectSmuCommand;
     public RelayCommand ClearLogCommand { get; }
     public bool IsElevated { get; }
 
@@ -157,6 +161,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             if (Set(ref _isInitializing, value))
             {
+                OnPropertyChanged(nameof(ShowReconnectSmu));
+                OnPropertyChanged(nameof(CanReconnectSmu));
                 OnPropertyChanged(nameof(CanStart));
                 OnPropertyChanged(nameof(CanStartSingleCore));
                 RefreshCommands();
@@ -204,6 +210,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             if (Set(ref _isHardwareReady, value))
             {
+                OnPropertyChanged(nameof(ShowReconnectSmu));
+                OnPropertyChanged(nameof(CanReconnectSmu));
                 OnPropertyChanged(nameof(CanStart));
                 OnPropertyChanged(nameof(CanStartSingleCore));
                 RefreshCommands();
@@ -213,6 +221,28 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public bool CanTogglePbo => _smu?.IsAvailable == true || IsDemo;
     public bool CanInstallPawnIo => !IsDemo && !PawnIoNative.IsInstalled && File.Exists(GetPawnIoInstallerPath());
+
+    /// <summary>Offered while the SMU is unavailable on a supported CPU and nothing else is running.</summary>
+    public bool CanReconnectSmu =>
+        !IsDemo && !IsInitializing && !IsRunning && !_isReconnecting
+        && _cpu?.IsSupported == true && _smu?.IsAvailable != true;
+
+    /// <summary>Shows the reconnect button (enabled state comes from <see cref="CanReconnectSmu"/>).</summary>
+    public bool ShowReconnectSmu =>
+        !IsDemo && !IsInitializing && _cpu?.IsSupported == true && _smu?.IsAvailable != true;
+
+    public bool IsReconnecting
+    {
+        get => _isReconnecting;
+        private set
+        {
+            if (Set(ref _isReconnecting, value))
+            {
+                OnPropertyChanged(nameof(CanReconnectSmu));
+                RefreshCommands();
+            }
+        }
+    }
     public bool IsInputValid
     {
         get => _isInputValid;
@@ -230,7 +260,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public bool CanStart => IsHardwareReady && IsPboArmed && IsInputValid && !IsRunning && !IsInitializing;
     public bool CanStartSingleCore => IsHardwareReady && IsPboArmed && IsInputValid && !IsRunning && !IsInitializing;
     public bool CanExport => HasResult && !IsRunning;
-    public bool CanShowCoreVoltages => HasResult && _currentRun?.CoreVoltages.Count > 0 && !IsRunning;
+    public bool CanShowCoreVoltages =>
+        HasResult && !IsRunning
+        && (_currentRun?.CoreVoltages.Count > 0 || _singleCoreRun?.CoreVoltages.Count > 0);
     public string StartButtonText => IsRunning ? "测试中…" : "开始全核测试";
     public string SingleCoreButtonText => IsRunning ? "测试中…" : "开始每核单独测试";
 
@@ -667,44 +699,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         StageText = "正在检测 CPU、PawnIO 与 SMU…";
         Log(LogLevel.Info, "正在检测硬件…");
 
-        HardwareInitResult init = await Task.Run(() =>
+        (CpuDescriptor cpu, CpuTopology topology) = await Task.Run(() =>
         {
-            CpuDescriptor cpu = CpuDescriptor.Detect();
-            CpuTopology topology = CpuTopology.Detect(cpu);
-            cpu.CcdCount = topology.CcdCount;
-
-            SmuController? smu = null;
-            string? smuError = null;
-            if (!cpu.IsAmd)
-            {
-                smuError = "未检测到 AMD 处理器。";
-            }
-            else if (!cpu.IsSupported)
-            {
-                smuError = $"不支持的处理器（{cpu.Codename}，Family 0x{cpu.Family:X2} Model 0x{cpu.Model:X2}）。仅支持已验证的 Zen 4 / Zen 5 型号，不会访问 SMU。";
-            }
-            else
-            {
-                smu = new SmuController(cpu);
-                if (!smu.Initialize(out string error))
-                {
-                    smuError = error;
-                }
-            }
-
-            LhmSensorService sensors = new(topology, smu, cpu.IsZen4 || cpu.IsZen5);
-            sensors.Start();
-            SensorSnapshot snapshot = sensors.Sample();
-            PboAssessment? assessment = smu?.IsAvailable == true ? smu.AssessPbo(snapshot) : null;
-
-            return new HardwareInitResult(cpu, topology, smu, sensors, smuError, assessment, smu?.LastKnownFMaxCeiling ?? 0);
+            CpuDescriptor detected = CpuDescriptor.Detect();
+            CpuTopology layout = CpuTopology.Detect(detected);
+            detected.CcdCount = layout.CcdCount;
+            return (detected, layout);
         });
-
-        _cpu = init.Cpu;
-        _topology = init.Topology;
-        _smu = init.Smu;
-        _sensors = init.Sensors;
-        _originalFMaxCeiling = init.OriginalFMaxCeiling;
+        _cpu = cpu;
+        _topology = topology;
 
         CpuName = _cpu.Name;
         ArchitectureText = _cpu.IsZen5 ? "Zen 5" : _cpu.IsZen4 ? "Zen 4" : _cpu.ArchitectureLabel;
@@ -714,6 +717,64 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                      _cpu.Name.Contains("X3D", StringComparison.OrdinalIgnoreCase);
         BuildCcdOptions();
 
+        SmuConnection connection = await Task.Run(() => ConnectSmu(cpu, topology));
+        AdoptConnection(connection);
+        ApplySmuState(connection);
+        ApplyDefaultRange();
+
+        await MeasureStartupEclkAsync();
+        LogOriginalFMax();
+        ApplyReadyStatus(connection.Error);
+    }
+
+    /// <summary>
+    /// Connects the SMU and starts the sensors. Runs off the UI thread and is
+    /// reused by the "reconnect" command, so a busy PCI lock or a freshly
+    /// installed PawnIO no longer needs a restart.
+    /// </summary>
+    private static SmuConnection ConnectSmu(CpuDescriptor cpu, CpuTopology topology)
+    {
+        SmuController? smu = null;
+        string? error = null;
+        if (!cpu.IsAmd)
+        {
+            error = "未检测到 AMD 处理器。";
+        }
+        else if (!cpu.IsSupported)
+        {
+            error = $"不支持的处理器（{cpu.Codename}，Family 0x{cpu.Family:X2} Model 0x{cpu.Model:X2}）。仅支持已验证的 Zen 4 / Zen 5 型号，不会访问 SMU。";
+        }
+        else
+        {
+            smu = new SmuController(cpu);
+            if (!smu.Initialize(out string initError))
+            {
+                error = initError;
+            }
+        }
+
+        LhmSensorService sensors = new(topology, smu, cpu.IsZen4 || cpu.IsZen5);
+        sensors.Start();
+        SensorSnapshot snapshot = sensors.Sample();
+        PboAssessment? assessment = smu?.IsAvailable == true ? smu.AssessPbo(snapshot) : null;
+        return new SmuConnection(smu, sensors, error, assessment);
+    }
+
+    private void AdoptConnection(SmuConnection connection)
+    {
+        _smu = connection.Smu;
+        _sensors = connection.Sensors;
+        _originalFMaxCeiling = connection.Smu?.LastKnownFMaxCeiling ?? 0;
+    }
+
+    /// <summary>Status texts, logs, FMax readouts and PBO assessment for a connection result.</summary>
+    private void ApplySmuState(SmuConnection connection)
+    {
+        if (_cpu is null)
+        {
+            return;
+        }
+
         PawnIoStatusText = PawnIoNative.IsInstalled
             ? $"PawnIO {PawnIoNative.InstalledVersion ?? ""}".Trim()
             : "PawnIO 未安装";
@@ -721,16 +782,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             ? $"SMU 0x{_smu.SmuVersion:X8} · {_smu.PlatformName}"
             : "SMU 不可用";
         DriverWarningVisible = !PawnIoNative.IsInstalled;
-        DriverWarningText = "未检测到 PawnIO。安装后才能读取 CPU 频率、电压并修改最高频率。";
+        DriverWarningText = "未检测到 PawnIO。安装后点“重新连接”即可读取 CPU 频率、电压并修改最高频率。";
         IsHardwareReady = _smu?.IsAvailable == true;
 
         if (!PawnIoNative.IsInstalled)
         {
-            Log(LogLevel.Error, "未安装 PawnIO。请点击“安装 PawnIO”，安装完成后重启 ZenVF。");
+            Log(LogLevel.Error, "未安装 PawnIO。请点击“安装 PawnIO”，安装完成后点“重新连接”。");
         }
         else if (_smu?.IsAvailable != true)
         {
-            Log(LogLevel.Error, $"SMU 初始化失败：{init.SmuError ?? "未知错误"}");
+            Log(LogLevel.Error, $"SMU 初始化失败：{connection.Error ?? "未知错误"}");
         }
         else
         {
@@ -756,24 +817,35 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
 
         int? stockActual = _cpu.StockFMaxMHz;
-        int currentActual = init.OriginalFMaxCeiling > 0 ? _cpu.ToActualFMax(init.OriginalFMaxCeiling) : 0;
+        int currentActual = _originalFMaxCeiling > 0 ? _cpu.ToActualFMax(_originalFMaxCeiling) : 0;
         StockFMaxText = stockActual is int stock ? $"{stock} MHz" : "—";
         CurrentFMaxText = currentActual > 0 ? $"{currentActual} MHz" : "—";
-        OriginalFMaxText = init.OriginalFMaxCeiling > 0 ? $"{currentActual} MHz" : "—";
+        OriginalFMaxText = currentActual > 0 ? $"{currentActual} MHz" : "—";
         ScalarText = _smu?.PboScalar is float scalar ? scalar.ToString("0.00") : "—";
 
-        if (init.Assessment is not null)
+        if (connection.Assessment is not null)
         {
-            ApplyAssessment(init.Assessment);
+            ApplyAssessment(connection.Assessment);
         }
         else
         {
             PboState = "unknown";
             PboSummary = _smu?.IsAvailable == true ? "PBO 状态未知" : "SMU 不可用";
-            PboDetail = init.SmuError ?? "无法读取 PBO 状态。";
-            PboEvidenceText = init.SmuError is null ? string.Empty : "• " + init.SmuError;
+            PboDetail = connection.Error ?? "无法读取 PBO 状态。";
+            PboEvidenceText = connection.Error is null ? string.Empty : "• " + connection.Error;
+        }
+    }
+
+    /// <summary>Default sweep range and its hint, from the model table or the current FMax.</summary>
+    private void ApplyDefaultRange()
+    {
+        if (_cpu is null)
+        {
+            return;
         }
 
+        int? stockActual = _cpu.StockFMaxMHz;
+        int currentActual = _originalFMaxCeiling > 0 ? _cpu.ToActualFMax(_originalFMaxCeiling) : 0;
         int baseline = stockActual ?? (currentActual > 0 ? currentActual : 5000);
         int start = currentActual > 0 ? currentActual : baseline;
         if (stockActual is int s)
@@ -808,39 +880,102 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             Log(LogLevel.Warning,
                 $"未在型号表中找到“{_cpu.Name}”的默认最高频率；起始频率不允许超过当前最高频率{(currentActual > 0 ? $" {currentActual} MHz" : string.Empty)}。");
         }
+    }
 
-        await MeasureStartupEclkAsync();
-
-        if (init.OriginalFMaxCeiling > 0)
+    private void LogOriginalFMax()
+    {
+        if (_cpu is null || _originalFMaxCeiling == 0)
         {
-            Log(LogLevel.Info,
-                $"原始 FMax：SMU 上限 {init.OriginalFMaxCeiling} MHz，实际最高频率 {currentActual} MHz。最高频率接管未打开。");
-            if (_cpu.FMaxCeilingOffsetMHz > 0)
-            {
-                Log(LogLevel.Info,
-                    $"{_cpu.ModelToken ?? _cpu.Name}：SMU FMax 上限比实际最高加速高 {_cpu.FMaxCeilingOffsetMHz} MHz；界面与扫描范围均使用实际值。");
-            }
+            return;
         }
 
+        Log(LogLevel.Info,
+            $"原始 FMax：SMU 上限 {_originalFMaxCeiling} MHz，实际最高频率 {_cpu.ToActualFMax(_originalFMaxCeiling)} MHz。最高频率接管未打开。");
+        if (_cpu.FMaxCeilingOffsetMHz > 0)
+        {
+            Log(LogLevel.Info,
+                $"{_cpu.ModelToken ?? _cpu.Name}：SMU FMax 上限比实际最高加速高 {_cpu.FMaxCeilingOffsetMHz} MHz；界面与扫描范围均使用实际值。");
+        }
+    }
+
+    private void ApplyReadyStatus(string? error)
+    {
         if (_smu?.IsAvailable == true)
         {
             StatusText = "就绪 · 请先打开“最高频率接管”";
             StageText = "打开开关后会保存当前频率，结束时自动恢复";
-            IsPboArmed = false;
         }
         else
         {
             StatusText = "SMU 不可用 · 无法开始扫描";
-            StageText = init.SmuError ?? "请安装 PawnIO 并重试";
-            IsPboArmed = false;
+            StageText = error ?? "请安装 PawnIO 后点“重新连接”";
         }
 
+        IsPboArmed = false;
         OnPropertyChanged(nameof(CanTogglePbo));
         OnPropertyChanged(nameof(PboToggleHint));
         OnPropertyChanged(nameof(CanInstallPawnIo));
-
+        OnPropertyChanged(nameof(CanReconnectSmu));
+        OnPropertyChanged(nameof(ShowReconnectSmu));
+        RefreshCommands();
     }
 
+    /// <summary>
+    /// Retries the SMU connection without restarting ZenVF: after another
+    /// monitor held the PCI lock at startup, or after PawnIO was installed.
+    /// Keeps the user's sweep range; re-runs eCLK detection, which needs the
+    /// real FMax as its reference.
+    /// </summary>
+    private async Task ReconnectSmuAsync()
+    {
+        if (!CanReconnectSmu || _cpu is null || _topology is null)
+        {
+            return;
+        }
+
+        if (_smu?.HasPendingRestore == true)
+        {
+            // Never drop a controller that still owes an FMax restore.
+            Log(LogLevel.Error, "当前 SMU 连接仍有待恢复的 FMax，不能重新连接。");
+            return;
+        }
+
+        IsReconnecting = true;
+        StatusText = "正在重新连接 SMU…";
+        StageText = "正在检测 PawnIO 与 SMU";
+        Log(LogLevel.Info, "正在重新连接 SMU…");
+        try
+        {
+            CpuDescriptor cpu = _cpu;
+            CpuTopology topology = _topology;
+            SmuConnection connection = await Task.Run(() => ConnectSmu(cpu, topology));
+
+            SmuController? oldSmu = _smu;
+            ISensorService? oldSensors = _sensors;
+            AdoptConnection(connection);
+            oldSensors?.Dispose();
+            oldSmu?.Dispose();
+
+            ApplySmuState(connection);
+            if (_smu?.IsAvailable == true)
+            {
+                await MeasureStartupEclkAsync();
+                LogOriginalFMax();
+            }
+
+            ApplyReadyStatus(connection.Error);
+            ValidateInputs();
+        }
+        catch (Exception ex)
+        {
+            Log(LogLevel.Error, $"重新连接失败：{ex.Message}");
+            StatusText = "SMU 不可用 · 无法开始扫描";
+        }
+        finally
+        {
+            IsReconnecting = false;
+        }
+    }
     private async Task MeasureStartupEclkAsync()
     {
         if (IsDemo || _sensors is null || _cpu is null)
@@ -1899,6 +2034,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         HasResult = (_currentRun?.CoreVoltages.Count > 0)
             || (_singleCoreRun?.CoreVoltages.Count > 0);
+        OnPropertyChanged(nameof(CanShowCoreVoltages));
     }
 
     private void ApplySessionEclk(SweepRunResult result)
@@ -2029,7 +2165,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         try
         {
             Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
-            Log(LogLevel.Info, "已启动 PawnIO 安装程序。安装完成后请重启 ZenVF。");
+            Log(LogLevel.Info, "已启动 PawnIO 安装程序。安装完成后点“重新连接”。");
             StatusText = "已启动 PawnIO 安装程序";
         }
         catch (Exception ex)
@@ -2118,6 +2254,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _stopCommand.RaiseCanExecuteChanged();
         _togglePboCommand.RaiseCanExecuteChanged();
         _installPawnIoCommand.RaiseCanExecuteChanged();
+        _reconnectSmuCommand.RaiseCanExecuteChanged();
     }
 
     private int ActualFromCeiling(uint ceilingFMax) =>
@@ -2204,12 +2341,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Shutdown();
     }
 
-    private sealed record HardwareInitResult(
-        CpuDescriptor Cpu,
-        CpuTopology Topology,
+    private sealed record SmuConnection(
         SmuController? Smu,
         LhmSensorService Sensors,
-        string? SmuError,
-        PboAssessment? Assessment,
-        uint OriginalFMaxCeiling);
+        string? Error,
+        PboAssessment? Assessment);
 }

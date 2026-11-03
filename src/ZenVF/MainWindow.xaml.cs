@@ -84,9 +84,9 @@ public partial class MainWindow : Window
 
             if (_screenshotMode && _screenshotPath is not null)
             {
-                if (_options.ScreenshotCore && _vm.CurrentRun is not null)
+                if (_options.ScreenshotCore && PickCoreVoltageRun(_options.ScreenshotTab) is (SweepRunResult shotRun, bool shotSingle))
                 {
-                    CoreVoltageWindow coreWindow = new(_vm.CurrentRun, _vm.IsDemo)
+                    CoreVoltageWindow coreWindow = new(shotRun, _vm.IsDemo, shotSingle)
                     {
                         Owner = this,
                         WindowStartupLocation = WindowStartupLocation.Manual,
@@ -298,16 +298,35 @@ public partial class MainWindow : Window
 
     private void CoreVoltage_Click(object sender, RoutedEventArgs e)
     {
-        if (_vm.CurrentRun is null || _vm.CurrentRun.CoreVoltages.Count == 0)
+        if (PickCoreVoltageRun(ChartTabs.SelectedIndex) is not (SweepRunResult run, bool singleCore))
         {
             return;
         }
 
-        CoreVoltageWindow window = new(_vm.CurrentRun, _vm.IsDemo)
+        CoreVoltageWindow window = new(run, _vm.IsDemo, singleCore)
         {
             Owner = this
         };
         window.ShowDialog();
+    }
+
+    /// <summary>
+    /// Run shown by the per-core voltage window: the single-core run when the
+    /// "单核 V/F" tab is active, otherwise the all-core run; falls back to
+    /// whichever run has data.
+    /// </summary>
+    private (SweepRunResult Run, bool SingleCore)? PickCoreVoltageRun(int tabIndex)
+    {
+        bool hasAll = _vm.CurrentRun is { CoreVoltages.Count: > 0 };
+        bool hasSingle = _vm.SingleCoreRun is { CoreVoltages.Count: > 0 };
+        bool preferSingle = tabIndex == 2;
+
+        if (hasSingle && (preferSingle || !hasAll))
+        {
+            return (_vm.SingleCoreRun!, true);
+        }
+
+        return hasAll ? (_vm.CurrentRun!, false) : null;
     }
 
     private void ExportCsv_Click(object sender, RoutedEventArgs e)

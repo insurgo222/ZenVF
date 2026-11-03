@@ -324,13 +324,52 @@
                                             AutomationProperties.Name="最高频率接管开关" />
                                 </Grid>
 
-                                <Border Style="{StaticResource Inset}" Margin="0,12,0,0" Padding="10,7">
-                                    <StackPanel Orientation="Horizontal">
-                                        <Ellipse Width="6" Height="6" Fill="{DynamicResource GreenBrush}" VerticalAlignment="Center" />
-                                        <TextBlock Text="{Binding SmuStatusText}" FontFamily="Cascadia Mono, Consolas"
-                                                   FontSize="11" Foreground="{DynamicResource MutedBrush}" Margin="8,0,0,0"
-                                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                                    </StackPanel>
+                                <Border Style="{StaticResource Inset}" Margin="0,12,0,0" Padding="10,4">
+                                    <Grid MinHeight="26">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <!-- Green when the SMU is connected, red when it is not. -->
+                                        <Ellipse Width="6" Height="6" VerticalAlignment="Center">
+                                            <Ellipse.Style>
+                                                <Style TargetType="Ellipse">
+                                                    <Setter Property="Fill" Value="{DynamicResource RedBrush}" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsHardwareReady}" Value="True">
+                                                            <Setter Property="Fill" Value="{DynamicResource GreenBrush}" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding IsDemo}" Value="True">
+                                                            <Setter Property="Fill" Value="{DynamicResource GreenBrush}" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Ellipse.Style>
+                                        </Ellipse>
+                                        <TextBlock Grid.Column="1" Text="{Binding SmuStatusText}" FontFamily="Cascadia Mono, Consolas"
+                                                   FontSize="11" Foreground="{DynamicResource MutedBrush}" Margin="8,0,8,0"
+                                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                   ToolTip="{Binding SmuStatusText}" />
+                                        <Button Grid.Column="2" Style="{StaticResource GhostButton}" Height="26" Padding="10,0"
+                                                Command="{Binding ReconnectSmuCommand}"
+                                                Visibility="{Binding ShowReconnectSmu, Converter={StaticResource BoolToVis}}"
+                                                ToolTip="不用重启 ZenVF，重新连接 PawnIO 与 SMU（例如其他监控软件刚才占用了 PCI 总线锁，或刚装好 PawnIO）。"
+                                                AutomationProperties.Name="重新连接 SMU">
+                                            <TextBlock VerticalAlignment="Center">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Text" Value="重新连接" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsReconnecting}" Value="True">
+                                                                <Setter Property="Text" Value="连接中…" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </Button>
+                                    </Grid>
                                 </Border>
 
                                 <Border Style="{StaticResource SectionRule}" Margin="0,14,0,0" />
@@ -597,7 +636,7 @@
                                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
                                     <Button Style="{StaticResource GhostButton}" Click="CoreVoltage_Click"
                                             IsEnabled="{Binding CanShowCoreVoltages}" Margin="0,0,4,0"
-                                            ToolTip="查看同一频率下每个核心的电压">
+                                            ToolTip="查看同一频率下每个核心的电压；在“单核 V/F”页打开时显示每核单独测试的结果">
                                         <TextBlock Text="每核电压" VerticalAlignment="Center" />
                                     </Button>
                                     <Border Width="1" Height="18" Background="{DynamicResource BorderBrush}"
