@@ -33,6 +33,12 @@ public sealed class SmuController : IDisposable
     private readonly object _pmTableSync = new();
     private readonly object _writeSync = new();
     private readonly FMaxRestoreTracker _restore = new();
+
+    // Returned by SendRsmu when the Global\Access_PCI mutex could not be
+    // taken (HRESULT_FROM_WIN32(ERROR_TIMEOUT)); distinct from access denied.
+    private const int PciLockTimeoutHResult = unchecked((int)0x800705B4);
+    private const int InitAttempts = 3;
+    private int _lastRsmuHr;
     private FmaxCommands? _commands;
     private bool _initialized;
     private bool _disposed;
@@ -101,21 +107,52 @@ public sealed class SmuController : IDisposable
                 _pawnIo.LoadEmbeddedModule(memory.ToArray());
 
                 SmuVersion = ReadUInt("ioctl_get_smu_version");
-                ResolvePmTable();
 
                 // Only the command set that belongs to this platform is used.
                 // Probing the other set would send command ids whose meaning
                 // on this SMU is unknown.
                 FmaxCommands candidate = _cpu.IsApu ? FmaxCommands.Apu : FmaxCommands.Desktop;
-                if (TryReadFMax(candidate, out uint value) && value is >= 400 and <= 8000)
+
+                // Other monitors (HWiNFO starting or exiting, MSI Center ...)
+                // can hold the PCI bus mutex for several seconds. Without a
+                // retry, one busy moment at startup left the SMU unusable for
+                // the whole session and was reported as a BIOS lock.
+                uint lastValue = 0;
+                for (int attempt = 1;
+                     attempt <= InitAttempts && (_commands is null || _pmTableVersion == 0);
+                     attempt++)
                 {
-                    _commands = candidate;
-                    LastKnownFMaxCeiling = value;
+                    if (attempt > 1)
+                    {
+                        Thread.Sleep(1000);
+                    }
+
+                    if (_pmTableVersion == 0)
+                    {
+                        ResolvePmTable();
+                    }
+
+                    if (_commands is null)
+                    {
+                        if (TryReadFMax(candidate, out uint value) && value is >= 400 and <= 8000)
+                        {
+                            _commands = candidate;
+                            LastKnownFMaxCeiling = value;
+                        }
+                        else
+                        {
+                            lastValue = value;
+                        }
+                    }
                 }
 
                 if (_commands is null)
                 {
-                    InitializationError = $"RSMU（{candidate.Name}）未返回有效的 FMax。BIOS 可能锁定了 PBO。";
+                    InitializationError = _lastRsmuHr == PciLockTimeoutHResult
+                        ? $"PCI 总线锁一直被其他硬件监控程序占用（例如 HWiNFO 正在启动或退出、MSI Center 等），重试 {InitAttempts} 次仍未拿到。请稍候或关闭这些程序后重启 ZenVF。"
+                        : _lastRsmuHr != 0
+                            ? $"RSMU（{candidate.Name}）读取 FMax 的命令失败（HRESULT 0x{_lastRsmuHr:X8}）。"
+                            : $"RSMU（{candidate.Name}）返回的 FMax 无效（{lastValue}）。BIOS 可能锁定了 PBO，或该平台的命令不兼容。";
                     error = InitializationError;
                     return false;
                 }
@@ -640,7 +677,8 @@ public sealed class SmuController : IDisposable
         using PciBusLock pciLock = new();
         if (!pciLock.Acquired)
         {
-            return unchecked((int)0x80070005);
+            _lastRsmuHr = PciLockTimeoutHResult;
+            return PciLockTimeoutHResult;
         }
 
         long[] input = new long[7];
@@ -652,6 +690,7 @@ public sealed class SmuController : IDisposable
 
         long[] output = new long[6];
         int hr = _pawnIo.ExecuteHr("ioctl_send_smu_command", input, 7, output, 6, out uint returned);
+        _lastRsmuHr = hr;
         if (hr == 0 && returned > 0)
         {
             for (int i = 0; i < Math.Min(6, (int)returned); i++)
