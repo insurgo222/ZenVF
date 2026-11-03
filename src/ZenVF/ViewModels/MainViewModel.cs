@@ -122,6 +122,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         AdminText = IsElevated ? "管理员" : "标准用户";
     }
 
+    /// <summary>Product version from the assembly (set once, in ZenVF.csproj).</summary>
+    public static string AppVersion { get; } =
+        typeof(MainViewModel).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
+
+    public string VersionText => "v" + AppVersion;
+
     public ObservableCollection<CcdOption> CcdOptions { get; } = new();
 
     /// <summary>Columns for the CCD card grid: a lone CCD card spans the full rail width.</summary>
@@ -577,7 +583,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public async Task InitializeAsync()
     {
-        Log(LogLevel.Info, $"ZenVF 1.0.7（构建 {BuildStamp()}）— AMD Zen 4 / Zen 5 V/F 扫描工具（默认 5 秒预热 + 5 秒采样）");
+        Log(LogLevel.Info, $"ZenVF {AppVersion}（构建 {BuildStamp()}）— AMD Zen 4 / Zen 5 V/F 扫描工具（默认 5 秒预热 + 5 秒采样）");
         if (!IsDemo)
         {
             Log(LogLevel.Info, IsElevated ? "进程已提权。" : "进程未提权，硬件写入可能不可用。");

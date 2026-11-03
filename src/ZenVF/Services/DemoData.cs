@@ -138,6 +138,10 @@ public static class DemoData
             EffectiveFMaxCeiling = requestedFMax,
             PackagePower = Math.Round(packagePower, 1),
             Tctl = Math.Round(tctl, 1),
+            VoltageSource = "SMU PM table",
+            // Demo only: show the clock-limited marker on the two top steps,
+            // as a power-limited all-core run would produce.
+            IsClockLimited = requestedFMax >= 5800,
             Cores = cores
         };
     }
@@ -167,7 +171,8 @@ public static class DemoData
             Temperature = worstCore.Temperature,
             PackagePower = frequency.PackagePower,
             SampleCount = 18,
-            Timestamp = DateTime.Now
+            Timestamp = DateTime.Now,
+            IsClockLimited = frequency.IsClockLimited
         };
     }
 
@@ -249,6 +254,7 @@ public static class DemoData
             EffectiveFMaxCeiling = requestedFMax,
             PackagePower = Math.Round(27 + (distanceFromBase * 0.009), 1),
             Tctl = Math.Round(peakTemperature + 2.4, 1),
+            VoltageSource = "CPU VDDCR_VDD（SMU PM table SVI3 遥测）",
             Cores = samples
         };
     }

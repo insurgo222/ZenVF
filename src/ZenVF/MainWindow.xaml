@@ -7,7 +7,7 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:svc="clr-namespace:ZenVF.Services"
         mc:Ignorable="d"
-        Title="ZenVF 1.0.7"
+        Title="ZenVF"
         Width="1500"
         Height="940"
         MinWidth="1180"
@@ -789,7 +789,7 @@
                         <Border Width="1" Height="12" Background="{DynamicResource BorderBrush}" Margin="12,0" />
                         <TextBlock Text="{Binding AdminText}" FontSize="11" Foreground="{DynamicResource FaintBrush}" />
                         <Border Width="1" Height="12" Background="{DynamicResource BorderBrush}" Margin="12,0" />
-                        <TextBlock Text="v1.0.7" FontFamily="Cascadia Mono, Consolas" FontSize="10.5"
+                        <TextBlock Text="{Binding VersionText}" FontFamily="Cascadia Mono, Consolas" FontSize="10.5"
                                    Foreground="{DynamicResource FaintBrush}" />
                     </StackPanel>
                 </Grid>

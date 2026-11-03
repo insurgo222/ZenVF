@@ -160,7 +160,19 @@ public static class ChartBuilder
         double MarkerSize = 3.4,
         IReadOnlyList<int>? PointCoreIds = null,
         int? CcdIndex = null,
-        string? LegendText = null);
+        string? LegendText = null,
+        IReadOnlyList<bool>? PointClockLimited = null);
+
+    /// <summary>
+    /// Hollow ring drawn over a max-core point whose step was clock limited
+    /// (measured clock well below FMax: PPT, current or temperature bound).
+    /// Kept as its own type so hover highlighting can dim it with its CCD.
+    /// </summary>
+    public sealed class ClockLimitRing : ScatterSeries
+    {
+        public int CcdIndex { get; init; }
+        public OxyColor BaseColor { get; init; }
+    }
 
     /// <summary>
     /// Per-core legend grouped by CCD, read back from the series so swatch
@@ -412,6 +424,7 @@ public static class ChartBuilder
                 // Rank curves by mean voltage so the upper curve labels above its
                 // points and the lower curve below. Choosing by CCD parity put
                 // CCD0's labels on top of CCD1's line whenever CCD0 ran lower.
+                bool anyClockLimited = false;
                 Dictionary<int, int> rankByCcd = ccdMaxCores
                     .OrderByDescending(pair => pair.Value.Average(p => p.Core.Voltage))
                     .Select((pair, rank) => (pair.Key, rank))
@@ -425,6 +438,9 @@ public static class ChartBuilder
                         .ToList();
                     List<int> pointCoreIds = maxCorePoints
                         .Select(pair => pair.Core.DisplayCoreId)
+                        .ToList();
+                    List<bool> pointLimited = maxCorePoints
+                        .Select(pair => pair.Frequency.IsClockLimited)
                         .ToList();
                     OxyColor color = CcdColor(ccdIndex);
                     string label = $"CCD{ccdIndex} MAX CORE";
@@ -448,7 +464,8 @@ public static class ChartBuilder
                             2.4,
                             5.2,
                             pointCoreIds,
-                            ccdIndex)
+                            ccdIndex,
+                            PointClockLimited: pointLimited)
                     };
 
                     foreach (var pair in maxCorePoints)
@@ -457,6 +474,31 @@ public static class ChartBuilder
                     }
 
                     model.Series.Add(maxLine);
+
+                    // Clock-limited steps: a hollow ring over the point. Its
+                    // fill is the plot background, so the filled marker below
+                    // reads as an open circle.
+                    List<ScatterPoint> limitedPoints = maxCorePoints
+                        .Where(pair => pair.Frequency.IsClockLimited)
+                        .Select(pair => new ScatterPoint(pair.Core.ClockMHz, pair.Core.Voltage))
+                        .ToList();
+                    if (limitedPoints.Count > 0)
+                    {
+                        ClockLimitRing ring = new()
+                        {
+                            CcdIndex = ccdIndex,
+                            BaseColor = color,
+                            MarkerType = MarkerType.Circle,
+                            MarkerSize = 6.4,
+                            MarkerFill = PlotBackground,
+                            MarkerStroke = color,
+                            MarkerStrokeThickness = 2.0,
+                            RenderInLegend = false
+                        };
+                        ring.Points.AddRange(limitedPoints);
+                        model.Series.Add(ring);
+                        anyClockLimited = true;
+                    }
 
                     if (maxCorePoints.Count <= 48)
                     {
@@ -486,6 +528,20 @@ public static class ChartBuilder
                             });
                         }
                     }
+                }
+
+                if (anyClockLimited)
+                {
+                    // Legend-only entry explaining the hollow rings.
+                    model.Series.Add(new ScatterSeries
+                    {
+                        Title = "CLOCK LIMITED (PPT / TEMP / CURRENT)",
+                        MarkerType = MarkerType.Circle,
+                        MarkerSize = 5.2,
+                        MarkerFill = PlotBackground,
+                        MarkerStroke = Muted,
+                        MarkerStrokeThickness = 2.0
+                    });
                 }
             }
             else
@@ -959,7 +1015,7 @@ public static class ChartBuilder
         {
             builder.AppendLine($"# Started,{result.Started:yyyy-MM-dd HH:mm:ss}");
             builder.AppendLine($"# Finished,{(result.Finished.HasValue ? result.Finished.Value.ToString("yyyy-MM-dd HH:mm:ss") : "")}");
-            builder.AppendLine("# ccd,core_id,requested_actual_fmax_mhz,effective_actual_fmax_mhz,requested_ceiling_fmax_mhz,effective_ceiling_fmax_mhz,effective_clock_mhz,voltage_v,temperature_c,package_power_w,samples,timestamp,eclk_actual_fmax_mhz");
+            builder.AppendLine("# ccd,core_id,requested_actual_fmax_mhz,effective_actual_fmax_mhz,requested_ceiling_fmax_mhz,effective_ceiling_fmax_mhz,effective_clock_mhz,voltage_v,temperature_c,package_power_w,samples,timestamp,eclk_actual_fmax_mhz,clock_limited");
             foreach (SweepSeries series in result.Series.OrderBy(s => s.CcdIndex))
             {
                 foreach (SweepPoint point in series.Points.OrderByDescending(p => p.RequestedFMax))
@@ -977,13 +1033,14 @@ public static class ChartBuilder
                         point.PackagePower.ToString("0.0", CultureInfo.InvariantCulture),
                         point.SampleCount.ToString(CultureInfo.InvariantCulture),
                         point.Timestamp.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
-                        result.ToEclkAdjustedFMax(point.RequestedFMax).ToString(CultureInfo.InvariantCulture)));
+                        result.ToEclkAdjustedFMax(point.RequestedFMax).ToString(CultureInfo.InvariantCulture),
+                        point.IsClockLimited ? "1" : "0"));
                 }
             }
 
             builder.AppendLine();
             builder.AppendLine("# per_core_voltages");
-            builder.AppendLine("# requested_actual_fmax_mhz,effective_actual_fmax_mhz,requested_ceiling_fmax_mhz,effective_ceiling_fmax_mhz,ccd,core_id,effective_clock_mhz,voltage_v,temperature_c,package_power_w,tctl_c,eclk_actual_fmax_mhz");
+            builder.AppendLine("# requested_actual_fmax_mhz,effective_actual_fmax_mhz,requested_ceiling_fmax_mhz,effective_ceiling_fmax_mhz,ccd,core_id,effective_clock_mhz,voltage_v,temperature_c,package_power_w,tctl_c,eclk_actual_fmax_mhz,clock_limited,voltage_source");
             foreach (FrequencyCoreVoltages frequency in result.CoreVoltages.OrderByDescending(f => f.RequestedFMax))
             {
                 foreach (CoreVoltageSample core in frequency.Cores
@@ -1002,7 +1059,9 @@ public static class ChartBuilder
                         core.Temperature.ToString("0.0", CultureInfo.InvariantCulture),
                         frequency.PackagePower.ToString("0.0", CultureInfo.InvariantCulture),
                         frequency.Tctl.ToString("0.0", CultureInfo.InvariantCulture),
-                        result.ToEclkAdjustedFMax(frequency.RequestedFMax).ToString(CultureInfo.InvariantCulture)));
+                        result.ToEclkAdjustedFMax(frequency.RequestedFMax).ToString(CultureInfo.InvariantCulture),
+                        frequency.IsClockLimited ? "1" : "0",
+                        Escape(frequency.VoltageSource ?? string.Empty)));
                 }
             }
         }
@@ -1011,7 +1070,7 @@ public static class ChartBuilder
         {
             builder.AppendLine();
             builder.AppendLine("# single_core_per_core_voltages");
-            builder.AppendLine("# requested_actual_fmax_mhz,effective_actual_fmax_mhz,requested_ceiling_fmax_mhz,effective_ceiling_fmax_mhz,ccd,core_id,logical_cpu,effective_clock_mhz,voltage_v,temperature_c,package_power_w,tctl_c,samples,eclk_actual_fmax_mhz");
+            builder.AppendLine("# requested_actual_fmax_mhz,effective_actual_fmax_mhz,requested_ceiling_fmax_mhz,effective_ceiling_fmax_mhz,ccd,core_id,logical_cpu,effective_clock_mhz,voltage_v,temperature_c,package_power_w,tctl_c,samples,eclk_actual_fmax_mhz,voltage_source");
             foreach (FrequencyCoreVoltages frequency in singleCore.CoreVoltages.OrderByDescending(f => f.RequestedFMax))
             {
                 foreach (CoreVoltageSample core in frequency.Cores
@@ -1032,7 +1091,8 @@ public static class ChartBuilder
                         frequency.PackagePower.ToString("0.0", CultureInfo.InvariantCulture),
                         frequency.Tctl.ToString("0.0", CultureInfo.InvariantCulture),
                         core.SampleCount.ToString(CultureInfo.InvariantCulture),
-                        singleCore.ToEclkAdjustedFMax(frequency.RequestedFMax).ToString(CultureInfo.InvariantCulture)));
+                        singleCore.ToEclkAdjustedFMax(frequency.RequestedFMax).ToString(CultureInfo.InvariantCulture),
+                        Escape(frequency.VoltageSource ?? string.Empty)));
                 }
             }
         }
@@ -1056,7 +1116,7 @@ public static class ChartBuilder
         builder.AppendLine("# ZenVF V/F 测试报告");
         builder.AppendLine();
         builder.AppendLine($"> 生成时间：{DateTime.Now:yyyy-MM-dd HH:mm:ss}  ");
-        builder.AppendLine($"> 数据来源：ZenVF {typeof(ChartBuilder).Assembly.GetName().Version?.ToString(3) ?? "1.0.7"}");
+        builder.AppendLine($"> 数据来源：ZenVF {typeof(ChartBuilder).Assembly.GetName().Version?.ToString(3) ?? "1.0.8"}");
         builder.AppendLine();
 
         builder.AppendLine("## 测试概要");
@@ -1070,7 +1130,7 @@ public static class ChartBuilder
             builder.AppendLine($"| 步进 | {primary.Settings.StepMHz} MHz |");
             builder.AppendLine($"| 预热 / 采样 | {primary.Settings.WarmupSeconds} s / {primary.Settings.SampleSeconds} s |");
             builder.AppendLine($"| CCD | {FormatCcds(primary.Settings.SelectedCcds)} |");
-            builder.AppendLine($"| 原始 SMU FMax 上限 | {primary.StockFMaxCeiling?.ToString(CultureInfo.InvariantCulture) ?? "—"} MHz |");
+            builder.AppendLine($"| 型号默认 SMU FMax 上限 | {primary.StockFMaxCeiling?.ToString(CultureInfo.InvariantCulture) ?? "—"} MHz |");
             builder.AppendLine($"| FMax 上限偏移 | {primary.FMaxCeilingOffsetMHz} MHz |");
             SweepRunResult? eclkSource = result?.IsEclkDetected == true
                 ? result
@@ -1141,15 +1201,17 @@ public static class ChartBuilder
         }
         else
         {
-            builder.AppendLine("| 档位 (MHz) | eCLK 实际 (MHz) | 回读 (MHz) | SMU 上限 (MHz) | CCD | 核心 | 实测频率 (MHz) | 电压 (V) | 温度 (°C) | 封装功耗 (W) | 样本 |");
-            builder.AppendLine("| ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |");
+            builder.AppendLine("| 档位 (MHz) | eCLK 实际 (MHz) | 回读 (MHz) | SMU 上限 (MHz) | CCD | 核心 | 实测频率 (MHz) | 电压 (V) | 温度 (°C) | 封装功耗 (W) | 样本 | 备注 |");
+            builder.AppendLine("| ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |");
             foreach (SweepPoint point in points)
             {
-                builder.AppendLine($"| {point.RequestedFMax} | {run.ToEclkAdjustedFMax(point.RequestedFMax)} | {point.EffectiveFMax} | {point.EffectiveFMaxCeiling} | CCD{point.CcdIndex} | {point.DisplayCoreId} | {FormatClock(point.ClockMHz)} | {FormatVoltage(point.Voltage)} | {FormatTemperature(point.Temperature)} | {FormatPower(point.PackagePower)} | {point.SampleCount} |");
+                builder.AppendLine($"| {point.RequestedFMax} | {run.ToEclkAdjustedFMax(point.RequestedFMax)} | {point.EffectiveFMax} | {point.EffectiveFMaxCeiling} | CCD{point.CcdIndex} | {point.DisplayCoreId} | {FormatClock(point.ClockMHz)} | {FormatVoltage(point.Voltage)} | {FormatTemperature(point.Temperature)} | {FormatPower(point.PackagePower)} | {point.SampleCount} | {(point.IsClockLimited ? "频率受限" : string.Empty)} |");
             }
 
             builder.AppendLine();
         }
+
+        AppendStepNotes(builder, run);
 
         builder.AppendLine("### 每核 V/F 汇总");
         builder.AppendLine();
@@ -1160,8 +1222,9 @@ public static class ChartBuilder
     {
         builder.AppendLine("## 每核单独测试");
         builder.AppendLine();
-        builder.AppendLine("> 电压来源：`CPU VDDCR_VDD`（SMU PM table SVI3 遥测）。同一档位内各核心共享封装电压。");
+        builder.AppendLine("> 同一档位内各核心共享封装电压 `CPU VDDCR_VDD`。");
         builder.AppendLine();
+        AppendStepNotes(builder, run);
         builder.AppendLine("### 每档汇总");
         builder.AppendLine();
 
@@ -1188,6 +1251,37 @@ public static class ChartBuilder
         builder.AppendLine("### 每核 V/F 汇总");
         builder.AppendLine();
         AppendCoreSummary(builder, run, includeLogicalProcessor: true);
+    }
+
+    /// <summary>
+    /// Voltage sources actually used (one per step) and the clock-limited
+    /// steps, so a report states where its voltages came from.
+    /// </summary>
+    private static void AppendStepNotes(StringBuilder builder, SweepRunResult run)
+    {
+        List<string> sources = run.CoreVoltages
+            .Select(frequency => frequency.VoltageSource)
+            .Where(source => !string.IsNullOrWhiteSpace(source))
+            .GroupBy(source => source!)
+            .OrderByDescending(group => group.Count())
+            .Select(group => $"{Md(group.Key)}（{group.Count()} 档）")
+            .ToList();
+        builder.AppendLine(sources.Count > 0
+            ? $"> 电压来源：{string.Join("；", sources)}"
+            : "> 电压来源：未记录");
+
+        List<int> limited = run.CoreVoltages
+            .Where(frequency => frequency.IsClockLimited)
+            .Select(frequency => frequency.RequestedFMax)
+            .OrderByDescending(fmax => fmax)
+            .ToList();
+        if (limited.Count > 0)
+        {
+            builder.AppendLine(">");
+            builder.AppendLine($"> 频率受限档位：{string.Join("、", limited)} MHz。这些档位的实测频率比档位低 100 MHz 以上，受 PPT 功耗、温度或电流限制，曲线这一段反映的是限制墙而不是 V/F 特性。");
+        }
+
+        builder.AppendLine();
     }
 
     private static void AppendCoreSummary(

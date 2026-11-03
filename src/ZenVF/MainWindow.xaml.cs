@@ -33,6 +33,7 @@ public partial class MainWindow : Window
         _screenshotMode = options.ScreenshotPath is not null;
         _screenshotPath = options.ScreenshotPath;
         _vm = new MainViewModel(options);
+        Title = $"ZenVF {MainViewModel.AppVersion}";
         App.EmergencyRestore = _vm.EmergencyRestore;
         DataContext = _vm;
         _vm.LogItems.CollectionChanged += OnLogItemsChanged;
@@ -594,7 +595,12 @@ public partial class MainWindow : Window
         }
 
         title.Text = hoverTitle;
-        detail.Text = $"{point.X:0} MHz   ·   {point.Y:0.000} V";
+        bool clockLimited = tag.PointClockLimited is { Count: > 0 } limited
+            && pointIndex >= 0
+            && pointIndex < limited.Count
+            && limited[pointIndex];
+        detail.Text = $"{point.X:0} MHz   ·   {point.Y:0.000} V"
+            + (clockLimited ? "\n频率受限：实测频率比档位低 100 MHz 以上" : string.Empty);
         tip.Visibility = Visibility.Visible;
     }
 
@@ -696,6 +702,12 @@ public partial class MainWindow : Window
             line.MarkerSize = isIdle
                 ? tag.MarkerSize
                 : isSelected ? tag.MarkerSize + 2.0 : Math.Max(2.0, tag.MarkerSize - 0.9);
+        }
+
+        foreach (ChartBuilder.ClockLimitRing ring in model.Series.OfType<ChartBuilder.ClockLimitRing>())
+        {
+            bool isActive = selectedCcd is null || ring.CcdIndex == selectedCcd.Value;
+            ring.MarkerStroke = isActive ? ring.BaseColor : OxyColor.FromAColor(34, ring.BaseColor);
         }
 
         OxyColor annotationColor = ChartBuilder.PointLabelColor;
