@@ -663,7 +663,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         HardwareInitResult init = await Task.Run(() =>
         {
-            CpuDescriptor cpu = CpuDescriptor.Detect(_options.CpuOverride);
+            CpuDescriptor cpu = CpuDescriptor.Detect();
             CpuTopology topology = CpuTopology.Detect(cpu);
             cpu.CcdCount = topology.CcdCount;
 

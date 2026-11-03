@@ -6,7 +6,6 @@ public sealed class AppOptions
     public string? ScreenshotPath { get; init; }
     public int ScreenshotTab { get; init; }
     public bool SkipElevation { get; init; }
-    public string? CpuOverride { get; init; }
     public string? ThemeOverride { get; init; }
     public string? AccentOverride { get; init; }
     public bool DemoEclk { get; init; }
@@ -22,7 +21,6 @@ public sealed class AppOptions
         bool skipElevation = false;
         string? screenshot = null;
         int screenshotTab = 0;
-        string? cpuOverride = null;
         string? themeOverride = null;
         string? accentOverride = null;
 
@@ -64,12 +62,6 @@ public sealed class AppOptions
                     screenshotTheme = true;
                     demo = true;
                     break;
-                case "--cpu":
-                    if (i + 1 < args.Length)
-                    {
-                        cpuOverride = args[++i];
-                    }
-                    break;
                 case "--theme":
                     if (i + 1 < args.Length)
                     {
@@ -91,7 +83,6 @@ public sealed class AppOptions
             ScreenshotPath = screenshot,
             ScreenshotTab = screenshotTab,
             SkipElevation = skipElevation,
-            CpuOverride = cpuOverride,
             ThemeOverride = themeOverride,
             AccentOverride = accentOverride,
             DemoEclk = demoEclk,

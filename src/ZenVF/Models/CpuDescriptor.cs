@@ -141,12 +141,20 @@ public sealed class CpuDescriptor
     public bool IsSupported => IsAmd && (IsZen4 || IsZen5);
 
     /// <summary>
-    /// Tctl at which a sweep is aborted. Zen 4 / Zen 5 throttle at Tjmax
-    /// 95 °C; first-generation Zen 4 X3D parts (7800X3D / 7900X3D / 7950X3D)
-    /// are limited to 89 °C.
+    /// Tjmax, where the CPU starts thermal throttling: 95 °C on Zen 4 / Zen 5,
+    /// 89 °C on first-generation Zen 4 X3D parts (7800X3D / 7900X3D / 7950X3D).
+    /// Used to recognise a temperature-limited step, not to abort.
     /// </summary>
-    public double ThermalLimitC =>
+    public double TjMaxC =>
         IsZen4 && Name.Contains("X3D", StringComparison.OrdinalIgnoreCase) ? 89.0 : 95.0;
+
+    /// <summary>
+    /// Tctl at which a sweep is aborted. Deliberately above Tjmax (user
+    /// decision, 2026-11-03): the CPU regulates itself at Tjmax and non-X3D
+    /// parts sit there under all-core load, so aborting at Tjmax would end
+    /// normal runs. This is a backstop for a failed cooler.
+    /// </summary>
+    public double AbortTemperatureC => 105.0;
 
     public int ToActualFMax(uint ceilingFMax) =>
         Math.Max(0, (int)ceilingFMax - FMaxCeilingOffsetMHz);
@@ -154,10 +162,12 @@ public sealed class CpuDescriptor
     public uint ToCeilingFMax(int actualFMax) =>
         (uint)Math.Max(0, actualFMax + FMaxCeilingOffsetMHz);
 
-    public static CpuDescriptor Detect(string? overrideName = null)
+    public static CpuDescriptor Detect()
     {
         CpuId.CpuIdResult id = CpuId.Read();
-        string name = string.IsNullOrWhiteSpace(overrideName) ? GetBrandString() : overrideName.Trim();
+        // The brand string is never overridable: the model name selects the
+        // stock FMax table and therefore the sweep's upper safety limit.
+        string name = GetBrandString();
         if (string.IsNullOrWhiteSpace(name))
         {
             name = id.Brand.Trim();

@@ -72,7 +72,7 @@ public sealed class SweepEngine
         Stopwatch stopwatch = Stopwatch.StartNew();
         const string label = "全核";
         string prefix = label + " ";
-        ThermalGuard thermal = new(cpu.ThermalLimitC, "全核测试");
+        ThermalGuard thermal = new(cpu.AbortTemperatureC, "全核测试");
         List<SweepSeries> series = settings.SelectedCcds
             .OrderBy(i => i)
             .Select(i => new SweepSeries { CcdIndex = i, Label = $"CCD{i} | MAX CORE" })
@@ -103,7 +103,7 @@ public sealed class SweepEngine
                 throw new InvalidOperationException("没有可测试的频率档位。");
             }
 
-            log(new LogEntry { Level = LogLevel.Info, Message = $"{prefix}温度保护：Tctl 连续 {ThermalGuard.RequiredConsecutive} 次 ≥ {cpu.ThermalLimitC:0} °C 时中止（含预热阶段）。" });
+            log(new LogEntry { Level = LogLevel.Info, Message = $"{prefix}温度保护：Tctl 连续 {ThermalGuard.RequiredConsecutive} 次 ≥ {cpu.AbortTemperatureC:0} °C 时中止（含预热阶段）；Tjmax {cpu.TjMaxC:0} °C 时 CPU 会自行降频。" });
             string ceilingNote = cpu.FMaxCeilingOffsetMHz > 0
                 ? $"，SMU 上限自动加 {cpu.FMaxCeilingOffsetMHz} MHz"
                 : string.Empty;
@@ -397,7 +397,7 @@ public sealed class SweepEngine
                         {
                             Level = LogLevel.Warning,
                             Message = $"FMax 实际 {effectiveActual} MHz：全核实测中位频率 {stepClock:0} MHz，低于档位 {effectiveActual - stepClock:0} MHz。"
-                                + $"该档受{DescribeLimiter(power, pptLimit, tctl, cpu.ThermalLimitC)}限制，而不是 FMax；曲线这一段反映的是限制墙，不是 V/F 特性。"
+                                + $"该档受{DescribeLimiter(power, pptLimit, tctl, cpu.TjMaxC)}限制，而不是 FMax；曲线这一段反映的是限制墙，不是 V/F 特性。"
                         });
                     }
                     result.CoreVoltages.Add(frequencyCores);
@@ -575,7 +575,7 @@ public sealed class SweepEngine
     {
         DateTime started = DateTime.Now;
         Stopwatch stopwatch = Stopwatch.StartNew();
-        ThermalGuard thermal = new(cpu.ThermalLimitC, "单核测试");
+        ThermalGuard thermal = new(cpu.AbortTemperatureC, "单核测试");
         List<int> frequencies = settings.BuildFrequencies().ToList();
         List<PhysicalCoreRef> cores = topology.GetPhysicalCores(settings.SelectedCcds).ToList();
         SweepRunResult result = new()
@@ -606,7 +606,7 @@ public sealed class SweepEngine
                 throw new InvalidOperationException("所选 CCD 没有可测试的物理核心。");
             }
 
-            log(new LogEntry { Level = LogLevel.Info, Message = $"温度保护：Tctl 连续 {ThermalGuard.RequiredConsecutive} 次 ≥ {cpu.ThermalLimitC:0} °C 时中止（含预热阶段）。" });
+            log(new LogEntry { Level = LogLevel.Info, Message = $"温度保护：Tctl 连续 {ThermalGuard.RequiredConsecutive} 次 ≥ {cpu.AbortTemperatureC:0} °C 时中止（含预热阶段）；Tjmax {cpu.TjMaxC:0} °C 时 CPU 会自行降频。" });
             int estimatedSeconds = settings.ApproximateSingleCoreDurationSeconds(cores.Count);
             string ceilingNote = cpu.FMaxCeilingOffsetMHz > 0
                 ? $"，SMU 上限自动加 {cpu.FMaxCeilingOffsetMHz} MHz"

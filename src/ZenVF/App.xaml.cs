@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.IO;
 using System.Security.Principal;
 using System.Windows;
@@ -60,7 +60,6 @@ public partial class App : Application
                 ScreenshotPath = _options.ScreenshotPath,
                 ScreenshotTab = _options.ScreenshotTab,
                 SkipElevation = _options.SkipElevation,
-                CpuOverride = _options.CpuOverride,
                 ThemeOverride = _options.ThemeOverride,
                 AccentOverride = _options.AccentOverride,
                 DemoEclk = _options.DemoEclk,
